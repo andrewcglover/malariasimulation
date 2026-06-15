@@ -24,13 +24,29 @@ initial_mosquito_counts <- function(parameters, species, foim, m) {
 
   incubation_survival <- exp(-mum * parameters$dem)
 
-  n_Pm <- m * foim / (foim + mum) * (
-    1. - incubation_survival
-  )
-
+  n_Pm <- m * foim / (foim + mum) * (1. - incubation_survival)
   n_Im <- m * foim / (foim + mum) * incubation_survival
 
-  c(n_E, n_L, n_P, n_Sm, n_Pm, n_Im)
+  # Enlarge adult block: Sv/Ev/Iv with Erlang EIP (spor_len stages).
+  # Baseline compartment (index 1) carries the equilibrium; exposed rows = 0.
+  deltaq   <- parameters$deltaq
+  spor_len <- parameters$spor_len
+  rho      <- spor_len / parameters$dem   # baseline EIP stage rate
+
+  # Distribute n_Pm across spor_len Erlang stages (geometric series)
+  Ev_ratio      <- rho / (rho + mum)
+  Ev_norm_factor <- if (abs(Ev_ratio - 1) < 1e-12) spor_len
+                    else (1 - Ev_ratio^spor_len) / (1 - Ev_ratio)
+  E1_eq          <- n_Pm / Ev_norm_factor
+  Ev_baseline    <- E1_eq * Ev_ratio^(seq_len(spor_len) - 1L)  # length spor_len
+
+  c(
+    n_E, n_L, n_P,                    # aquatic (unchanged)
+    n_Sm, rep(0, deltaq),             # Sv: baseline = n_Sm, exposed = 0
+    Ev_baseline,                      # Ev[baseline, 1..spor_len]
+    rep(0, deltaq * spor_len),        # Ev[exposed, *] = 0
+    n_Im, rep(0, deltaq)              # Iv: baseline = n_Im, exposed = 0
+  )
 }
 
 #' @title Calculate omega value

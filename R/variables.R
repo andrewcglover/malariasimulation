@@ -359,7 +359,10 @@ create_variables <- function(parameters) {
         )
       )
 
-      species_M <- sum(mosquito_counts[ADULT_ODE_INDICES])
+      n_sv <- sum(mosquito_counts[sv_block_indices(parameters$deltaq)])
+      n_ev <- sum(mosquito_counts[ev_block_indices(parameters$deltaq, parameters$spor_len)])
+      n_iv <- sum(mosquito_counts[iv_block_indices(parameters$deltaq, parameters$spor_len)])
+      species_M <- n_sv + n_ev + n_iv
 
       if (species_M > 0) {
         if (length(species_values) > parameters$mosquito_limit) {
@@ -372,10 +375,7 @@ create_variables <- function(parameters) {
         )
         state_values <- c(
           state_values,
-          rep(
-            c('Sm', 'Pm', 'Im'),
-            times = mosquito_counts[ADULT_ODE_INDICES]
-          )
+          rep(c('Sm', 'Pm', 'Im'), times = c(n_sv, n_ev, n_iv))
         )
       }
     }

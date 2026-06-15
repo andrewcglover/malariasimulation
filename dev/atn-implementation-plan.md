@@ -1,7 +1,14 @@
 # ATN port — step-by-step implementation plan
 
 Route A: edit in place, keep the package installable and backward-compatible.
-Work in order; each step compiles and tests before the next begins.
+
+> **Atomicity note (updated):** Step 1 is independently completable (R only, no compile needed).
+> **Steps 2–9 form a single atomic "compile-and-wire" block.** The C++ interface change
+> (Steps 2–3) immediately breaks the R call sites; Steps 4–9 fix them. The package will
+> not compile at any intermediate point between Steps 2 and 9. Do not attempt a test run
+> until Step 9 is complete and `Rcpp::compileAttributes()` + `devtools::load_all()` succeed.
+> **First test checkpoint: after Step 9** (behavioural smoke test run by the user).
+> Steps 10–12 (rendering, final compile, verification tests) follow the smoke test.
 
 ---
 

@@ -496,6 +496,7 @@ get_parameters <- function(overrides = list(), parasite = "falciparum") {
       # Hill kernel — EIP suppression (rho_i)
       s_half_eip = 1,
       nH_eip     = 1,
+      zeta       = 0,    # exponential-kernel rate (used only when use_eip_hill = FALSE)
       # Hill kernel — post-infection blocking (B_post)
       B_max_post  = 0,
       s_half_post = 1,

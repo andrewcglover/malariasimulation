@@ -131,7 +131,7 @@ simulate_bites <- function(
         parameters
       )
     } else {
-      n_infectious <- calculate_infectious_compartmental(solver_states)
+      n_infectious <- calculate_infectious_compartmental(solver_states, parameters)
     }
     
     # store the current population's EIR for later
@@ -201,11 +201,18 @@ simulate_bites <- function(
         timestep
       )
     } else {
+      kernels <- compute_atn_kernels(timestep, parameters, foim)
       adult_mosquito_model_update(
         models[[s_i]]$.model,
         mu,
         foim,
-        solver_states[[ADULT_ODE_INDICES['Sm']]],
+        a * kernels$delta_atn,   # av_da = human biting rate * exposure probability
+        kernels$delta_atn,
+        kernels$dn_atn,
+        kernels$Lambda0_t,
+        kernels$Lambda_i,
+        kernels$rho_i,
+        kernels$B_post,
         f
       )
     }
@@ -245,7 +252,7 @@ calculate_infectious <- function(species, solvers, variables, parameters) {
       )
     )
   }
-  calculate_infectious_compartmental(solvers[[species]]$get_states())
+  calculate_infectious_compartmental(solvers[[species]]$get_states(), parameters)
 }
 
 calculate_infectious_individual <- function(
@@ -259,8 +266,94 @@ calculate_infectious_individual <- function(
   infectious_index$copy()$and(species_index)$size()
 }
 
-calculate_infectious_compartmental <- function(solver_states) {
-  max(solver_states[[ADULT_ODE_INDICES['Im']]], 0)
+calculate_infectious_compartmental <- function(solver_states, parameters) {
+  iv_idx <- iv_block_indices(parameters$deltaq, parameters$spor_len)
+  max(sum(solver_states[iv_idx]), 0)
+}
+
+# Compute per-timestep ATN kernel scalars and vectors (v3 lines 773-864 + 430-467).
+# Returns: delta_atn, dn_atn, Lambda0_t, Lambda_i (len deltaqp1),
+#          rho_i (len deltaqp1), B_post (len spor_len).
+# Lambda_i[1] is always foim (baseline; no Hill decay for unexposed compartment).
+compute_atn_kernels <- function(timestep, parameters, foim) {
+  deltaqp1 <- parameters$deltaq + 1L
+  spor_len <- parameters$spor_len
+  n        <- parameters$n_atn
+  t0       <- parameters$t0_atn
+  Q0       <- parameters$Q0_atn
+  rho      <- spor_len / parameters$dem
+
+  # --- coverage: per-event with random proportional replacement ---
+  repl_factor <- vapply(seq_len(n), function(i) {
+    later <- which(t0 > t0[i] & t0 <= timestep)
+    prod(1 - Q0[later])
+  }, numeric(1))
+  Q_each <- ifelse(timestep < t0, 0,
+              Q0 * exp(-parameters$lambda_atn * (timestep - t0)) * repl_factor)
+  Q_t <- sum(Q_each)
+
+  # --- per-event drug-effect decay ---
+  Lambda   <- foim
+  Lambda00 <- Lambda * parameters$Lambda00sf
+  rho00    <- parameters$rho_frac * rho
+  age      <- pmax(timestep - t0, 0)
+  Lambda0_each <- ifelse(timestep < t0, Lambda,
+                    Lambda - (Lambda - Lambda00) * exp(-parameters$gamma_atn * age))
+  rho0_each    <- ifelse(timestep < t0, rho,
+                    rho    - (rho    - rho00)    * exp(-parameters$gamma_atn * age))
+  dn_each      <- ifelse(timestep < t0, 0,
+                    parameters$dn0_atn * exp(-parameters$gamma_atn * age))
+
+  # --- coverage-weighted averages ---
+  Lambda0_t <- if (Q_t > 0) sum(Q_each * Lambda0_each) / Q_t else Lambda
+  rho0_t    <- if (Q_t > 0) sum(Q_each * rho0_each)    / Q_t else rho
+  dn_atn    <- if (Q_t > 0) sum(Q_each * dn_each)      / Q_t else 0
+
+  delta_atn <- parameters$p_atn * parameters$phi_bednets * Q_t
+
+  # --- Bompard TRA -> field TBA transform ---
+  bompard <- function(b_lab) {
+    m <- parameters$m_bompard; k <- parameters$k_bompard
+    a_b <- (k / (k + m))^k
+    b_b <- (k / (k + m * (1 - b_lab)))^k
+    (b_b - a_b) / (1 - a_b)
+  }
+
+  # --- Lambda_i: per-compartment FOI (Hill decay over ATN-exposure index) ---
+  # s[i] = i - 0.5 (midpoint of compartment i, 1-indexed as in v3)
+  s <- seq_len(deltaqp1) - 0.5
+  b_lab_pre   <- (1 - Lambda0_t / Lambda) *
+    (parameters$s_half_pre^parameters$nH_pre /
+     (parameters$s_half_pre^parameters$nH_pre + s^parameters$nH_pre))
+  b_field_pre <- if (parameters$use_bompard) bompard(b_lab_pre) else b_lab_pre
+  Lambda_i    <- Lambda * (1 - b_field_pre)
+  Lambda_i[1] <- Lambda   # baseline compartment always carries raw Lambda
+
+  # --- rho_i: per-compartment EIP rate ---
+  rho_i <- if (parameters$use_eip_hill) {
+    rho - (rho - rho0_t) *
+      (parameters$s_half_eip^parameters$nH_eip /
+       (parameters$s_half_eip^parameters$nH_eip + s^parameters$nH_eip))
+  } else {
+    rho - (rho - rho0_t) * exp(-parameters$zeta * s)
+  }
+  rho_i[1] <- rho   # baseline compartment uses scalar rho (C++ ignores rho_i[1])
+
+  # --- B_post: post-infection blocking probability ---
+  t_post     <- (seq_len(spor_len) - 0.5) * parameters$dem / spor_len
+  b_lab_post <- parameters$B_max_post *
+    (parameters$s_half_post^parameters$nH_post /
+     (parameters$s_half_post^parameters$nH_post + t_post^parameters$nH_post))
+  B_post <- if (parameters$use_bompard) bompard(b_lab_post) else b_lab_post
+
+  list(
+    delta_atn = delta_atn,
+    dn_atn    = dn_atn,
+    Lambda0_t = Lambda0_t,
+    Lambda_i  = Lambda_i,
+    rho_i     = rho_i,
+    B_post    = B_post
+  )
 }
 
 intervention_coefficient <- function(p_bitten) {
