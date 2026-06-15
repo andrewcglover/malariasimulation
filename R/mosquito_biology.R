@@ -22,23 +22,17 @@ initial_mosquito_counts <- function(parameters, species, foim, m) {
 
   n_Sm <- m * mum / (foim + mum)
 
-  incubation_survival <- exp(-mum * parameters$dem)
-
-  n_Pm <- m * foim / (foim + mum) * (1. - incubation_survival)
-  n_Im <- m * foim / (foim + mum) * incubation_survival
-
-  # Enlarge adult block: Sv/Ev/Iv with Erlang EIP (spor_len stages).
-  # Baseline compartment (index 1) carries the equilibrium; exposed rows = 0.
+  # Erlang EIP chain equilibrium (baseline compartment, q=0).
+  # ODE steady state: dEv[0,0]/dt=0 => E1 = foim*Sv/(rho+mum);
+  #                   dIv[0]/dt=0    => Im = rho*Ev[0,sl-1]/mum.
   deltaq   <- parameters$deltaq
   spor_len <- parameters$spor_len
-  rho      <- spor_len / parameters$dem   # baseline EIP stage rate
+  rho      <- spor_len / parameters$dem
+  Ev_ratio <- rho / (rho + mum)
 
-  # Distribute n_Pm across spor_len Erlang stages (geometric series)
-  Ev_ratio      <- rho / (rho + mum)
-  Ev_norm_factor <- if (abs(Ev_ratio - 1) < 1e-12) spor_len
-                    else (1 - Ev_ratio^spor_len) / (1 - Ev_ratio)
-  E1_eq          <- n_Pm / Ev_norm_factor
-  Ev_baseline    <- E1_eq * Ev_ratio^(seq_len(spor_len) - 1L)  # length spor_len
+  E1_eq       <- foim * n_Sm / (rho + mum)
+  Ev_baseline <- E1_eq * Ev_ratio^(seq_len(spor_len) - 1L)
+  n_Im        <- rho * E1_eq * Ev_ratio^(spor_len - 1L) / mum
 
   c(
     n_E, n_L, n_P,                    # aquatic (unchanged)
@@ -127,8 +121,10 @@ equilibrium_total_M <- function(parameters, EIR) {
     stop('init_foim must be > 0 to calculate a non-zero equilibrium total_M')
   }
   mum <- weighted.mean(parameters$mum, parameters$species_proportions)
+  rho <- parameters$spor_len / parameters$dem
+  erlang_survival <- (rho / (rho + mum))^parameters$spor_len
   total_daily_eir <- EIR * parameters$human_population / 365
-  lifetime <- parameters$init_foim * exp(-mum * parameters$dem) / (
+  lifetime <- parameters$init_foim * erlang_survival / (
     parameters$init_foim + mum
   )
   total_daily_eir / sum(

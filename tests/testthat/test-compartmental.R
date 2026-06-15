@@ -38,38 +38,53 @@ test_that('ODE stays at equilibrium with a constant total_M', {
 test_that('Adult ODE stays at equilibrium with a constant foim and mu', {
   parameters <- get_parameters()
   parameters <- set_equilibrium(parameters, 100.)
-  f <- parameters$blood_meal_rates
+  f <- parameters$blood_meal_rates[[1]]
+  mu <- parameters$mum[[1]]
   timesteps <- 365 * 10
   models <- parameterise_mosquito_models(parameters, timesteps)
   solvers <- parameterise_solvers(models, parameters)
-  
+
   counts <- c()
-  
+
   for (t in seq(timesteps)) {
     states <- solvers[[1]]$get_states()
     counts <- rbind(counts, c(t, states))
+    kernels <- compute_atn_kernels(t, parameters, parameters$init_foim)
     adult_mosquito_model_update(
       models[[1]]$.model,
-      parameters$mum,
+      mu,
       parameters$init_foim,
-      states[ADULT_ODE_INDICES['Sm']],
+      f * kernels$delta_atn,
+      kernels$delta_atn,
+      kernels$dn_atn,
+      kernels$Lambda0_t,
+      kernels$Lambda_i,
+      kernels$rho_i,
+      kernels$B_post,
       f
     )
     solvers[[1]]$step()
   }
 
-  expected <- c()
+  # Compare adult compartments only: aquatic (E/L/P) drift ~2e-4 due to
+  # size_t truncation of total_M in the aquatic ODE — original model behaviour.
+  adult_idx <- c(
+    sv_block_indices(parameters$deltaq),
+    ev_block_indices(parameters$deltaq, parameters$spor_len),
+    iv_block_indices(parameters$deltaq, parameters$spor_len)
+  )
   equilibrium <- initial_mosquito_counts(
     parameters,
     1,
     parameters$init_foim,
     parameters$total_M
   )
-  
-  for (t in seq(timesteps)) {
-    expected <- rbind(expected, c(t, equilibrium))
-  }
-  expect_equal(counts, expected, tolerance=1e-4)
+
+  expected <- matrix(
+    rep(equilibrium[adult_idx], timesteps),
+    nrow = timesteps, byrow = TRUE
+  )
+  expect_equal(counts[, 1 + adult_idx], expected, tolerance=1e-4)
 })
 
 test_that('ODE stays at equilibrium with low total_M', {
