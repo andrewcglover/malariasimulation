@@ -50,7 +50,7 @@ test_that('fork (ATN off) prevalence matches original Sm/Pm/Im to within 10%', {
   sim <- run_simulation(365L * 3L, parameters = p)
 
   yr3  <- sim[sim$timestep > 365L * 2L, ]
-  prev <- yr3$n_detect_lm_730_3650 / yr3$n_730_3650
+  prev <- yr3$n_detect_lm_730_3650 / yr3$n_age_730_3650
   mean_prev <- mean(prev, na.rm = TRUE)
 
   expect_equal(mean_prev, ref$mean_prev_yr3, tolerance = 0.10,

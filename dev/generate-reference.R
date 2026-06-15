@@ -48,7 +48,7 @@ ref <- callr::r(function() {
 
   # Summarise over year 3 (post burn-in)
   yr3 <- sim[sim$timestep > 365L * 2L, ]
-  prev <- yr3$n_detect_lm_730_3650 / yr3$n_730_3650
+  prev <- yr3$n_detect_lm_730_3650 / yr3$n_age_730_3650
 
   list(
     mean_eir_yr3  = mean(yr3$EIR_gamb, na.rm = TRUE),
