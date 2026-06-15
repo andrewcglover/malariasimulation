@@ -1,7 +1,12 @@
 # CLAUDE.md — malariasimulation fork: add ATN (antimalarial-treated net) functionality
 
 > Place this file in the **root of the malariasimulation fork** (`you/malariasimulation`, branch `atn-dev`).
-> Claude Code reads it automatically each session. Keep it updated as decisions change.
+> Claude Code reads it automatically each session.
+>
+> **Maintenance (Claude Code):** keep this file current as you work. Whenever you confirm a source fact,
+> locate a file / function / constructor signature, settle a design decision, or hit a non-obvious gotcha,
+> update the relevant section concisely and replace any "TO CONFIRM" note with the finding — so future
+> sessions inherit it. Keep edits tight; this is a working reference, not prose.
 
 ## 0. One-line goal
 
