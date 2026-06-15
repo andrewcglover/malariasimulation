@@ -183,23 +183,36 @@ step 1 — the files and structure below are known, not to-be-discovered.
   `adult_mosquito_model_update`; `save_state`/`restore_state` likely collapse (no deque to checkpoint);
   `create_adult_solver` body unchanged (only its `init` is longer).
 
-**R-side touch-points (filenames still TO CONFIRM — find these next):**
-- `get_parameters()` — add ATN params + no-ATN defaults.
-- **mosquito equilibrium / init — `set_equilibrium()`**: the *human* equilibrium comes from the external
-  `malariaEquilibrium` package (via `eq_params`) and is **unchanged** by ATN (it switches on later at
-  `t0_atn`) — do **not** fork or modify `malariaEquilibrium`. The *mosquito* equilibrium is
-  malariasimulation's own glue: `set_equilibrium()` derives the mosquito density + `init_foim` from that
-  output, and the code building the `init` vector for `create_adult_solver` must now emit the enlarged
-  `Sv/Ev/Iv` vector (whole equilibrium into baseline index 1 via `Ev_ratio = rho/(rho+mu)` &
-  `Ev_norm_factor`, exposed rows zero). Because `malariaEquilibrium` — hence `init_foim` / total density —
-  is unchanged, baseline init just *redistributes the same total*; but it reproduces stock only **to
-  tolerance** (single-delay EIP vs Erlang; converges as `spor_len` grows), not bit-identically.
-- the per-timestep process calling `adult_mosquito_model_update` — compute & pass the kernels.
-- the infectious read-out feeding EIR/biting — swap the single `I` index for `sum(Iv)`.
+**R-side touch-points (confirmed):**
+- `get_parameters()` — `R/parameters.R:341` — add ATN params + no-ATN defaults.
+- **mosquito equilibrium / init — `set_equilibrium()` at `R/parameters.R:264`**: calls
+  `malariaEquilibrium::human_equilibrium()` for the *human* state only; extracts `eq$FOIM` →
+  `init_foim`. All mosquito-compartment arithmetic is malariasimulation's own:
+  `parameterise_mosquito_equilibrium()` → `initial_mosquito_counts()` (`R/mosquito_biology.R:10`) →
+  `create_adult_solver()`. Only `initial_mosquito_counts()` needs to emit the enlarged `Sv/Ev/Iv`
+  init vector (whole equilibrium into baseline index 1 via `Ev_ratio = rho/(rho+mu)` &
+  `Ev_norm_factor`, exposed rows zero). Do **not** fork or modify `malariaEquilibrium`. Because
+  `malariaEquilibrium` — hence `init_foim` / total density — is unchanged, baseline init just
+  *redistributes the same total*; but it reproduces stock only **to tolerance** (single-delay EIP
+  vs Erlang; converges as `spor_len` grows), not bit-identically.
+- **`ADULT_ODE_INDICES`** — `R/compartmental.R:1–2` — the R-side mirror of the C++ `AdultState`
+  enum: `c(Sm = 4, Pm = 5, Im = 6)`. Must expand in step with the C++ enum when the state vector
+  widens to `Sv/Ev/Iv`.
+- **Per-step update feed-in** — `R/biting_process.R:204` — `adult_mosquito_model_update(model, mu, foim, Sm, f)` called each timestep; `foim` routes into `Sv[1]` (baseline only) after the rewrite.
+- **EIR read-out** — `R/biting_process.R:262` — currently reads `solver_states[[ADULT_ODE_INDICES['Im']]]` (single index); after rewrite becomes a sum over the entire `Iv` block (`Ivtot = sum(Iv[1..deltaqp1])`).
 
 **Compatibility strategy:** disaggregate internally, **sum only at the boundary** — `sum(Iv)` for the
 EIR read-out and `sum(Sv)/sum(Ev)/sum(Iv)` for any `Sm/Pm/Im` outputs — and route `foim` specifically
 into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
+
+**Reference → package name map** (v3 symbol → malariasimulation equivalent):
+
+| v3 / malariasimple | malariasimulation | Notes |
+|---|---|---|
+| `delayMos` | `dem` (`parameters$dem`) | EIP duration (days) |
+| `mu` | `mum` (`parameters$mum`) | adult mosquito death rate |
+| `Lambda` / `foim` in v3 | `foim` / `init_foim` | human→mosquito FOI; `init_foim = eq$FOIM` at equilibrium |
+| `mv0` | `m` (local in `initial_mosquito_counts`) | total adult mosquito density |
 
 ## 10. Naming, collisions & parameter conventions
 
