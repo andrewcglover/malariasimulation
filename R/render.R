@@ -208,7 +208,7 @@ create_total_M_renderer_compartmental <- function(renderer, solvers, parameters)
     total_M <- 0
     for (i in seq_along(solvers)) {
       row <- solvers[[i]]$get_states()
-      species_M <- sum(row[ADULT_ODE_INDICES])
+      species_M <- sum(row[-(1:3)])
       total_M <- total_M + species_M
       renderer$render(paste0('total_M_', parameters$species[[i]]), species_M, timestep)
     }

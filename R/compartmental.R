@@ -1,5 +1,29 @@
 ODE_INDICES <- c(E = 1, L = 2, P = 3)
-ADULT_ODE_INDICES <- c(Sm = 4, Pm = 5, Im = 6)
+
+# Index helpers for the ATN adult state vector (1-based R indices).
+# q = 0..deltaq (C++ 0-based) maps to R indices 4..(4+deltaq).
+sv_block_indices <- function(deltaq) {
+  3L + seq_len(deltaq + 1L)
+}
+ev_block_indices <- function(deltaq, spor_len) {
+  deltaqp1 <- deltaq + 1L
+  3L + deltaqp1 + seq_len(deltaqp1 * spor_len)
+}
+iv_block_indices <- function(deltaq, spor_len) {
+  deltaqp1 <- deltaq + 1L
+  3L + deltaqp1 * (1L + spor_len) + seq_len(deltaqp1)
+}
+make_adult_ode_indices <- function(deltaq, spor_len) {
+  deltaqp1 <- deltaq + 1L
+  sv <- sv_block_indices(deltaq)
+  ev <- ev_block_indices(deltaq, spor_len)
+  iv <- iv_block_indices(deltaq, spor_len)
+  c(
+    setNames(sv, paste0('Sv', seq_len(deltaqp1))),
+    setNames(ev, paste0('Ev', seq_len(deltaqp1 * spor_len))),
+    setNames(iv, paste0('Iv', seq_len(deltaqp1)))
+  )
+}
 
 parameterise_mosquito_models <- function(parameters, timesteps) {
   
@@ -43,18 +67,13 @@ parameterise_mosquito_models <- function(parameters, timesteps) {
       )
       
       if (!parameters$individual_mosquitoes) {
-        susceptible <- initial_mosquito_counts(
-          parameters,
-          i,
-          parameters$init_foim,
-          m
-        )[ADULT_ODE_INDICES['Sm']]
         return(
           AdultMosquitoModel$new(create_adult_mosquito_model(
             growth_model,
             parameters$mum[[i]],
+            parameters$deltaq,
+            parameters$spor_len,
             parameters$dem,
-            susceptible * parameters$init_foim,
             parameters$init_foim
           ))
         )
@@ -96,7 +115,8 @@ create_compartmental_rendering_process <- function(renderer, solvers, parameters
   if (parameters$individual_mosquitoes) {
     indices <- ODE_INDICES
   } else {
-    indices <- c(ODE_INDICES, ADULT_ODE_INDICES)
+    indices <- c(ODE_INDICES, make_adult_ode_indices(
+      parameters$deltaq, parameters$spor_len))
   }
   
   function(timestep) {

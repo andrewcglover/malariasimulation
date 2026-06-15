@@ -473,6 +473,39 @@ get_parameters <- function(overrides = list(), parasite = "falciparum") {
       late_parasitological_failure_probability = NULL,
       reinfection_during_prophylaxis_probability = NULL,
       dt_slow_parasite_clearance = NULL,
+      # antimalarial-treated nets (ATN)
+      # Structural constants — fix array sizes at model construction; rebuild to change.
+      # deltaq >= 1 always (deltaqp1 = deltaq + 1); p_atn = 0 keeps ATN mechanically off.
+      deltaq   = 1L,     # ATN-exposure compartments (deltaqp1 = deltaq + 1)
+      spor_len = 10L,    # Erlang stages approximating the EIP
+      n_atn    = 1L,     # number of ATN distribution events
+      # Per-event vectors (length n_atn)
+      t0_atn   = 0,      # day of each distribution event (chronological)
+      Q0_atn   = 0,      # initial coverage of each event
+      # Coverage and potency decay
+      lambda_atn = 0,    # ATN retention decay rate
+      gamma_atn  = 0,    # drug-effect potency decay rate
+      p_atn      = 0,    # prob. antimalarial present on bite attempt (0 = ATN off)
+      # Drug-effect baselines
+      Lambda00sf = 1,    # Lambda00 = foim * Lambda00sf (scale factor)
+      rho_frac   = 1,    # rho00   = rho_frac * rho (scale factor)
+      dn0_atn    = 0,    # peak extra mosquito mortality
+      # Hill kernel — pre-infection blocking (Lambda_i)
+      s_half_pre = 1,
+      nH_pre     = 1,
+      # Hill kernel — EIP suppression (rho_i)
+      s_half_eip = 1,
+      nH_eip     = 1,
+      zeta       = 0,    # exponential-kernel rate (used only when use_eip_hill = FALSE)
+      # Hill kernel — post-infection blocking (B_post)
+      B_max_post  = 0,
+      s_half_post = 1,
+      nH_post     = 1,
+      # Bompard TRA -> field TBA transform (Bompard 2020 / Challenger 2023)
+      use_bompard  = FALSE,
+      use_eip_hill = TRUE,
+      m_bompard    = 1.57e-4,
+      k_bompard    = 4.95e-6,
       # rendering
       age_group_rendering_min_ages = numeric(0),
       age_group_rendering_max_ages = numeric(0),

@@ -22,15 +22,25 @@ initial_mosquito_counts <- function(parameters, species, foim, m) {
 
   n_Sm <- m * mum / (foim + mum)
 
-  incubation_survival <- exp(-mum * parameters$dem)
+  # Erlang EIP chain equilibrium (baseline compartment, q=0).
+  # ODE steady state: dEv[0,0]/dt=0 => E1 = foim*Sv/(rho+mum);
+  #                   dIv[0]/dt=0    => Im = rho*Ev[0,sl-1]/mum.
+  deltaq   <- parameters$deltaq
+  spor_len <- parameters$spor_len
+  rho      <- spor_len / parameters$dem
+  Ev_ratio <- rho / (rho + mum)
 
-  n_Pm <- m * foim / (foim + mum) * (
-    1. - incubation_survival
+  E1_eq       <- foim * n_Sm / (rho + mum)
+  Ev_baseline <- E1_eq * Ev_ratio^(seq_len(spor_len) - 1L)
+  n_Im        <- rho * E1_eq * Ev_ratio^(spor_len - 1L) / mum
+
+  c(
+    n_E, n_L, n_P,                    # aquatic (unchanged)
+    n_Sm, rep(0, deltaq),             # Sv: baseline = n_Sm, exposed = 0
+    Ev_baseline,                      # Ev[baseline, 1..spor_len]
+    rep(0, deltaq * spor_len),        # Ev[exposed, *] = 0
+    n_Im, rep(0, deltaq)              # Iv: baseline = n_Im, exposed = 0
   )
-
-  n_Im <- m * foim / (foim + mum) * incubation_survival
-
-  c(n_E, n_L, n_P, n_Sm, n_Pm, n_Im)
 }
 
 #' @title Calculate omega value
@@ -111,8 +121,10 @@ equilibrium_total_M <- function(parameters, EIR) {
     stop('init_foim must be > 0 to calculate a non-zero equilibrium total_M')
   }
   mum <- weighted.mean(parameters$mum, parameters$species_proportions)
+  rho <- parameters$spor_len / parameters$dem
+  erlang_survival <- (rho / (rho + mum))^parameters$spor_len
   total_daily_eir <- EIR * parameters$human_population / 365
-  lifetime <- parameters$init_foim * exp(-mum * parameters$dem) / (
+  lifetime <- parameters$init_foim * erlang_survival / (
     parameters$init_foim + mum
   )
   total_daily_eir / sum(

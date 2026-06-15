@@ -1,7 +1,10 @@
 test_that('compartmental always gives positive infectious', {
-  solver_states <- rep(0, length(ODE_INDICES) + length(ADULT_ODE_INDICES))
-  solver_states[[ADULT_ODE_INDICES['Im']]] <- -1e-10
-  expect_gte(calculate_infectious_compartmental(solver_states), 0)
+  parameters <- get_parameters()
+  state_len <- 3L + (parameters$deltaq + 1L) * (2L + parameters$spor_len)
+  solver_states <- rep(0, state_len)
+  iv_idx <- iv_block_indices(parameters$deltaq, parameters$spor_len)
+  solver_states[[iv_idx[[1]]]] <- -1e-10
+  expect_gte(calculate_infectious_compartmental(solver_states, parameters), 0)
 })
 
 test_that('gonotrophic_cycle cannot be negative', {

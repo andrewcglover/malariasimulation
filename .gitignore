@@ -12,3 +12,4 @@ doc
 inst/doc
 /doc/
 /Meta/
+tests/testthat/fixtures/
