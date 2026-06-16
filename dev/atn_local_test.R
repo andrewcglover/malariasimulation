@@ -32,8 +32,8 @@ retention_time         <- 588
 old_coverage <- 0.9
 new_coverage <- 0.9
 
-eir_levels <- c(5, 50)
-res_levels <- c(0.4, 0.9)
+eir_levels <- 5#c(5, 50)
+res_levels <- 0.4#c(0.4, 0.9)
 
 # Derived
 distribution_times <- c(old_distribution_times, new_distribution_times)

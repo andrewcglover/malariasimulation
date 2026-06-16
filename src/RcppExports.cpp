@@ -12,8 +12,8 @@ Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
 // create_adult_mosquito_model
-Rcpp::XPtr<AdultMosquitoModel> create_adult_mosquito_model(Rcpp::XPtr<AquaticMosquitoModel> growth_model, double mu, int deltaq, int spor_len, double dem, double foim);
-RcppExport SEXP _malariasimulation_create_adult_mosquito_model(SEXP growth_modelSEXP, SEXP muSEXP, SEXP deltaqSEXP, SEXP spor_lenSEXP, SEXP demSEXP, SEXP foimSEXP) {
+Rcpp::XPtr<AdultMosquitoModel> create_adult_mosquito_model(Rcpp::XPtr<AquaticMosquitoModel> growth_model, double mu, int deltaq, int spor_len, double dem, double kappa, double foim);
+RcppExport SEXP _malariasimulation_create_adult_mosquito_model(SEXP growth_modelSEXP, SEXP muSEXP, SEXP deltaqSEXP, SEXP spor_lenSEXP, SEXP demSEXP, SEXP kappaSEXP, SEXP foimSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -22,8 +22,9 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type deltaq(deltaqSEXP);
     Rcpp::traits::input_parameter< int >::type spor_len(spor_lenSEXP);
     Rcpp::traits::input_parameter< double >::type dem(demSEXP);
+    Rcpp::traits::input_parameter< double >::type kappa(kappaSEXP);
     Rcpp::traits::input_parameter< double >::type foim(foimSEXP);
-    rcpp_result_gen = Rcpp::wrap(create_adult_mosquito_model(growth_model, mu, deltaq, spor_len, dem, foim));
+    rcpp_result_gen = Rcpp::wrap(create_adult_mosquito_model(growth_model, mu, deltaq, spor_len, dem, kappa, foim));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -358,7 +359,7 @@ END_RCPP
 RcppExport SEXP run_testthat_tests(void);
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_malariasimulation_create_adult_mosquito_model", (DL_FUNC) &_malariasimulation_create_adult_mosquito_model, 6},
+    {"_malariasimulation_create_adult_mosquito_model", (DL_FUNC) &_malariasimulation_create_adult_mosquito_model, 7},
     {"_malariasimulation_adult_mosquito_model_update", (DL_FUNC) &_malariasimulation_adult_mosquito_model_update, 11},
     {"_malariasimulation_adult_mosquito_model_save_state", (DL_FUNC) &_malariasimulation_adult_mosquito_model_save_state, 1},
     {"_malariasimulation_adult_mosquito_model_restore_state", (DL_FUNC) &_malariasimulation_adult_mosquito_model_restore_state, 2},
