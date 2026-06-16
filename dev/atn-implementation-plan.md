@@ -44,7 +44,7 @@ p_atn       = 0,   # probability antimalarial is present on bite attempt
 **Drug-effect baselines**:
 
 ```r
-Lambda00sf  = 1,   # scale factor: Lambda00 = Lambda * Lambda00sf
+# Lambda00sf removed — derived as Lambda * (1 - B_max_post) in compute_atn_kernels()
 rho_frac    = 1,   # scale factor: rho00 = rho_frac * rho
 dn0_atn     = 0,   # peak extra mortality
 ```
@@ -331,7 +331,7 @@ compute_atn_kernels <- function(t, parameters, foim) {
   # Per-event drug-effect decay
   rho    <- parameters$spor_len / parameters$dem
   Lambda <- foim
-  Lambda00 <- Lambda * parameters$Lambda00sf
+  Lambda00 <- Lambda * (1 - parameters$B_max_post)   # derived; no longer a stored parameter
   rho00    <- parameters$rho_frac * rho
   age <- pmax(t - t0, 0)
   Lambda0_each <- ifelse(t < t0, Lambda,

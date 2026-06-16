@@ -487,7 +487,6 @@ get_parameters <- function(overrides = list(), parasite = "falciparum") {
       gamma_atn  = 0,    # drug-effect potency decay rate
       p_atn      = 0,    # prob. antimalarial present on bite attempt (0 = ATN off)
       # Drug-effect baselines
-      Lambda00sf = 1,    # Lambda00 = foim * Lambda00sf (scale factor)
       rho_frac   = 1,    # rho00   = rho_frac * rho (scale factor)
       dn0_atn    = 0,    # peak extra mosquito mortality
       # Hill kernel — pre-infection blocking (Lambda_i)
@@ -502,7 +501,7 @@ get_parameters <- function(overrides = list(), parasite = "falciparum") {
       s_half_post = 1,
       nH_post     = 1,
       # Bompard TRA -> field TBA transform (Bompard 2020 / Challenger 2023)
-      use_bompard  = FALSE,
+      use_bompard  = TRUE,
       use_eip_hill = TRUE,
       m_bompard    = 1.57e-4,
       k_bompard    = 4.95e-6,

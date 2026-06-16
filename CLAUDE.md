@@ -232,3 +232,12 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
 - **ATN distribution events:** single and multiple rounds use the *same* code path — `n_atn` with
   vectors `t0_atn`, `Q0_atn` (`n_atn = 1` for a single round). Proportional-replacement mixing assumes
   `t0_atn` is chronological and distinct.
+- **`use_bompard` default is TRUE** (changed 2026-06-16); `use_eip_hill` default is also TRUE.
+  Both only affect ATN-on runs; baseline tests are unaffected.
+- **`Lambda00sf` was removed** (2026-06-16). `Lambda00` is now derived inside `compute_atn_kernels()`
+  as `foim * (1 - B_max_post)` — pre- and post-infection blocking share the same `b_max`. There is no
+  `Lambda00sf` parameter; passing it as an override will error.
+- **`p_atn`** (default 0) must be set to a positive value (e.g. 0.9) when distributing ATNs;
+  it multiplies `phi_bednets * Q_t` to give `delta_atn`. Omitting it silently disables the ATN mechanism.
+- **`set_bednets` requires `rnm < rn` (strict)**. For non-insecticidal ATNs (`dn0 = 0`, `rn = 0.24`),
+  set `rnm = rn - 1e-9`; `rnm = rn` is physically correct but fails the API check.

@@ -294,7 +294,7 @@ compute_atn_kernels <- function(timestep, parameters, foim) {
 
   # --- per-event drug-effect decay ---
   Lambda   <- foim
-  Lambda00 <- Lambda * parameters$Lambda00sf
+  Lambda00 <- Lambda * (1 - parameters$B_max_post)   # pre- & post-infection blocking share b_max
   rho00    <- parameters$rho_frac * rho
   age      <- pmax(timestep - t0, 0)
   Lambda0_each <- ifelse(timestep < t0, Lambda,

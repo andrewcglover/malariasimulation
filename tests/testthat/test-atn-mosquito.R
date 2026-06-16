@@ -124,7 +124,7 @@ test_that('run_simulation completes with ATN parameters set', {
     t0_atn   = 100L,
     lambda_atn = 0.003,
     gamma_atn  = 0.003,
-    Lambda00sf = 0.7,
+    B_max_post = 0.3,    # peak pre- & post-blocking = 0.3; Lambda00 = foim*(1-0.3) derived
     dn0_atn    = 0.2,
     prevalence_rendering_min_ages = 2 * 365,
     prevalence_rendering_max_ages = 10 * 365
