@@ -13,3 +13,5 @@ inst/doc
 /doc/
 /Meta/
 tests/testthat/fixtures/
+# local working notes / Claude Code handoffs — do not push
+dev/prompts/

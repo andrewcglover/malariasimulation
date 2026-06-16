@@ -320,8 +320,11 @@ compute_atn_kernels <- function(timestep, parameters, foim) {
   }
 
   # --- Lambda_i: per-compartment FOI (Hill decay over ATN-exposure index) ---
-  # s[i] = i - 0.5 (midpoint of compartment i, 1-indexed as in v3)
-  s <- seq_len(deltaqp1) - 0.5
+  # compartment 1 = unexposed baseline; exposed compartments i = 2..deltaqp1
+  # midpoint time-since-exposure = (i - 1.5) days  [i=2 -> 0.5, i=3 -> 1.5, ...]
+  # s[1] = 0 guard: avoids (-0.5)^nH NaN; value unused (overwritten for baseline below)
+  s    <- seq_len(deltaqp1) - 1.5
+  s[1] <- 0
   b_lab_pre   <- (1 - Lambda0_t / Lambda) *
     (parameters$s_half_pre^parameters$nH_pre /
      (parameters$s_half_pre^parameters$nH_pre + s^parameters$nH_pre))

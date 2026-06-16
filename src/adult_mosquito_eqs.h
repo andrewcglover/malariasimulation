@@ -58,7 +58,7 @@ struct AdultMosquitoModel {
     size_t deltaq;
     size_t deltaqp1;  // = deltaq + 1
     size_t spor_len;
-    double kappa;     // = 1.0 / deltaq
+    double kappa;     // waning rate out of each exposure compartment (day^-1); default 1.0
     double rho;       // = spor_len / dem  (baseline EIP stage rate)
     // per-step scalars
     double mu;
@@ -77,6 +77,7 @@ struct AdultMosquitoModel {
         size_t spor_len,
         double mu,
         double dem,
+        double kappa,
         double foim
     );
 };

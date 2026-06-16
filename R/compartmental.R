@@ -74,6 +74,7 @@ parameterise_mosquito_models <- function(parameters, timesteps) {
             parameters$deltaq,
             parameters$spor_len,
             parameters$dem,
+            parameters$kappa,
             parameters$init_foim
           ))
         )

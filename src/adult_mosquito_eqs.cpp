@@ -14,12 +14,13 @@ AdultMosquitoModel::AdultMosquitoModel(
     size_t spor_len,
     double mu,
     double dem,
+    double kappa,
     double foim
     ) : growth_model(growth_model),
         deltaq(deltaq),
         deltaqp1(deltaq + 1u),
         spor_len(spor_len),
-        kappa(1.0 / static_cast<double>(deltaq)),
+        kappa(kappa),
         rho(static_cast<double>(spor_len) / dem),
         mu(mu),
         foim(foim),
@@ -205,6 +206,7 @@ Rcpp::XPtr<AdultMosquitoModel> create_adult_mosquito_model(
     int deltaq,
     int spor_len,
     double dem,
+    double kappa,
     double foim
     ) {
     auto model = new AdultMosquitoModel(
@@ -213,6 +215,7 @@ Rcpp::XPtr<AdultMosquitoModel> create_adult_mosquito_model(
         static_cast<size_t>(spor_len),
         mu,
         dem,
+        kappa,
         foim
     );
     return Rcpp::XPtr<AdultMosquitoModel>(model, true);
