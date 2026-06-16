@@ -476,9 +476,9 @@ get_parameters <- function(overrides = list(), parasite = "falciparum") {
       # antimalarial-treated nets (ATN)
       # Structural constants — fix array sizes at model construction; rebuild to change.
       # deltaq >= 1 always (deltaqp1 = deltaq + 1); p_atn = 0 keeps ATN mechanically off.
-      deltaq   = 1L,     # ATN-exposure compartments (deltaqp1 = deltaq + 1)
-      kappa    = 1.0,    # waning rate out of each exposure compartment (day^-1)
-      spor_len = 10L,    # Erlang stages approximating the EIP
+      deltaq     = 1L,    # ATN-exposure compartments (deltaqp1 = deltaq + 1)
+      atn_window = 10,   # time-since-exposure window spanned by exposed compartments (days)
+      spor_len   = 10L,  # Erlang stages approximating the EIP
       n_atn    = 1L,     # number of ATN distribution events
       # Per-event vectors (length n_atn)
       t0_atn   = 0,      # day of each distribution event (chronological)
