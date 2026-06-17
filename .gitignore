@@ -15,3 +15,5 @@ inst/doc
 tests/testthat/fixtures/
 # local working notes / Claude Code handoffs — do not push
 dev/prompts/
+# site files — access-controlled malariaverse data; do not push
+dev/site_files/
