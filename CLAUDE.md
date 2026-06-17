@@ -241,3 +241,25 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   it multiplies `phi_bednets * Q_t` to give `delta_atn`. Omitting it silently disables the ATN mechanism.
 - **`set_bednets` requires `rnm < rn` (strict)**. For non-insecticidal ATNs (`dn0 = 0`, `rn = 0.24`),
   set `rnm = rn - 1e-9`; `rnm = rn` is physically correct but fails the API check.
+- **`phi_bednets` is per-species** (set by `set_species` to a length-N vector). `compute_atn_kernels`
+  takes a `species` integer argument and must use `parameters$phi_bednets[[species]]` — NOT the bare
+  `parameters$phi_bednets` vector. Even `0 * phi_bednets` yields a length-N vector, causing
+  `Expecting a single value: [extent=N]` from Rcpp when passed as the scalar `delta_atn` argument.
+  All call sites must pass the species index (production: `s_i`; tests: `1L`).
+
+## 11. Mali projection pipeline (dev/mali_projection_run.R, confirmed 2026-06-17)
+
+- **Test harness:** `options(mali_test_mode = TRUE); source("dev/mali_projection_run.R")` loads all
+  functions/data without launching the cluster. `dev/mali_single_region_test.R` uses this to run
+  the highest-EIR region (Mopti, EIR ≈ 501) × 4 arms sequentially — use this to validate fixes
+  before a full 36-job parallel run.
+- **`site_parameters()` overrides clinical incidence rendering** with its own three age-group
+  buckets: `[0, 1824]`, `[1825, 5474]`, `[5475, 36499]` (days). The `clinical_incidence_rendering_*`
+  override in `render_overrides` is ignored. Sum the three columns for all-ages incidence.
+- **Prevalence column off-by-one:** malariasimulation uses an exclusive upper bound in column names.
+  `prevalence_rendering_max_ages = 10 * 365 = 3650` → column `n_detect_lm_730_3649` (not `_3650`).
+  Same for `n_age_730_3649`. `run_one` uses these corrected names.
+- **Mali species:** gambiae / arabiensis / funestus (3 species). Any parameter test with Mali must
+  handle per-species vectors; single-species `get_parameters()` defaults keep those as scalars.
+- **Validated run times (Mopti, n=1000, 31-year horizon, deltaq=10):** none ≈ 126 s,
+  cfp ≈ 137 s, atn ≈ 229 s, pyr_atn ≈ 215 s (per arm, sequential, Windows local).

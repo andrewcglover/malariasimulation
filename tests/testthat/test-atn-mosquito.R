@@ -30,7 +30,7 @@ test_that('Adult ODE stays at Erlang equilibrium with ATN off', {
 
   # Run for one year; adult compartments must stay at equilibrium
   for (t in seq_len(365L)) {
-    kernels <- compute_atn_kernels(t, parameters, parameters$init_foim)
+    kernels <- compute_atn_kernels(t, parameters, parameters$init_foim, 1L)
     adult_mosquito_model_update(
       models[[1]]$.model,
       mu,
@@ -89,7 +89,7 @@ test_that('ATN extra mortality reduces total infectious mosquitoes', {
   initial_Ivtot <- sum(solvers[[1]]$get_states()[iv_idx])
 
   for (t in seq_len(365L)) {
-    kernels <- compute_atn_kernels(t, parameters, parameters$init_foim)
+    kernels <- compute_atn_kernels(t, parameters, parameters$init_foim, 1L)
     adult_mosquito_model_update(
       models[[1]]$.model,
       mu,

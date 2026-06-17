@@ -201,7 +201,7 @@ simulate_bites <- function(
         timestep
       )
     } else {
-      kernels <- compute_atn_kernels(timestep, parameters, foim)
+      kernels <- compute_atn_kernels(timestep, parameters, foim, s_i)
       adult_mosquito_model_update(
         models[[s_i]]$.model,
         mu,
@@ -275,7 +275,7 @@ calculate_infectious_compartmental <- function(solver_states, parameters) {
 # Returns: delta_atn, dn_atn, Lambda0_t, Lambda_i (len deltaqp1),
 #          rho_i (len deltaqp1), B_post (len spor_len).
 # Lambda_i[1] is always foim (baseline; no Hill decay for unexposed compartment).
-compute_atn_kernels <- function(timestep, parameters, foim) {
+compute_atn_kernels <- function(timestep, parameters, foim, species) {
   deltaqp1 <- parameters$deltaq + 1L
   spor_len <- parameters$spor_len
   n        <- parameters$n_atn
@@ -309,7 +309,7 @@ compute_atn_kernels <- function(timestep, parameters, foim) {
   rho0_t    <- if (Q_t > 0) sum(Q_each * rho0_each)    / Q_t else rho
   dn_atn    <- if (Q_t > 0) sum(Q_each * dn_each)      / Q_t else 0
 
-  delta_atn <- parameters$p_atn * parameters$phi_bednets * Q_t
+  delta_atn <- parameters$p_atn * parameters$phi_bednets[[species]] * Q_t
 
   # --- Bompard TRA -> field TBA transform ---
   bompard <- function(b_lab) {

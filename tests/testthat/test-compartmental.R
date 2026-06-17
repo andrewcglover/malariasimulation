@@ -49,7 +49,7 @@ test_that('Adult ODE stays at equilibrium with a constant foim and mu', {
   for (t in seq(timesteps)) {
     states <- solvers[[1]]$get_states()
     counts <- rbind(counts, c(t, states))
-    kernels <- compute_atn_kernels(t, parameters, parameters$init_foim)
+    kernels <- compute_atn_kernels(t, parameters, parameters$init_foim, 1L)
     adult_mosquito_model_update(
       models[[1]]$.model,
       mu,

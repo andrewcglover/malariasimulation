@@ -27,7 +27,7 @@ OUT_FILE  <- "dev/outputs/mali_projection_results.rds"
 FORK_PATH <- normalizePath(".")          # for pkgload::load_all() in workers
 N_CORES   <- max(1L, parallel::detectCores() - 1L)
 
-human_pop      <- 10000L   # per-region population (smooth single-run incidence)
+human_pop      <- 1000L   # per-region population (smooth single-run incidence)
 n_future_years <- 6L
 arms           <- c("none", "cfp", "atn", "pyr_atn")
 retention_time <- 588      # mean net-retention (days) for the FUTURE CD schedule
@@ -259,14 +259,20 @@ run_one <- function(row) {
       region    = region,
       arm       = arm,
       year_rel  = (timestep - future_start_day) / 365,
-      pfpr2to10 = n_detect_lm_730_3650 / n_age_730_3650,
-      clin_inc  = n_inc_clinical_0_36500
+      pfpr2to10 = n_detect_lm_730_3649 / n_age_730_3649,
+      clin_inc  = n_inc_clinical_0_1824 + n_inc_clinical_1825_5474 + n_inc_clinical_5475_36499
     )
 }
 
 # ---------------------------------------------------------------------
 # 8. Parallel sweep (Windows PSOCK; workers reuse the .dll built interactively)
+#    Skipped when options(mali_test_mode = TRUE) — lets test scripts source
+#    this file to get functions/data without launching the cluster.
 # ---------------------------------------------------------------------
+if (isTRUE(getOption("mali_test_mode"))) {
+  message("mali_test_mode = TRUE: setup complete, skipping parallel sweep.")
+} else {
+
 grid_df <- expand.grid(region = regions, arm = arms, stringsAsFactors = FALSE)
 rows    <- split(grid_df, seq_len(nrow(grid_df)))
 
@@ -310,3 +316,5 @@ saveRDS(list(
   )
 ), OUT_FILE)
 message("Saved -> ", OUT_FILE)
+
+} # end if (!mali_test_mode)

@@ -41,7 +41,7 @@ states_at   <- list()
 
 t <- 0L
 for (day in seq_len(timesteps)) {
-  kernels <- compute_atn_kernels(day, parameters, parameters$init_foim)
+  kernels <- compute_atn_kernels(day, parameters, parameters$init_foim, 1L)
   adult_mosquito_model_update(
     models[[1]]$.model,
     mu,
