@@ -114,28 +114,53 @@ parameterise_solvers <- function(models, parameters) {
 
 create_compartmental_rendering_process <- function(renderer, solvers, parameters) {
   if (parameters$individual_mosquitoes) {
-    indices <- ODE_INDICES
+    ode_idx <- ODE_INDICES
+    function(timestep) {
+      for (s_i in seq_along(solvers)) {
+        sp  <- parameters$species[[s_i]]
+        row <- if (parameters$species_proportions[[s_i]] > 0)
+          solvers[[s_i]]$get_states() else rep(0L, length(ode_idx))
+        for (i in seq_along(ode_idx))
+          renderer$render(paste0(names(ode_idx)[[i]], '_', sp, '_count'),
+                          row[[ode_idx[[i]]]], timestep)
+      }
+    }
   } else {
-    indices <- c(ODE_INDICES, make_adult_ode_indices(
-      parameters$deltaq, parameters$spor_len))
-  }
-  
-  function(timestep) {
-    counts <- rep(0, length(indices))
-    for (s_i in seq_along(solvers)) {
-      if (parameters$species_proportions[[s_i]] > 0) {
-        row <- solvers[[s_i]]$get_states()
-      } else {
-        row <- rep(0, length(indices))
+    # Pre-compute index sets once (avoids recomputing every timestep).
+    deltaq   <- parameters$deltaq
+    spor_len <- parameters$spor_len
+    ode_idx  <- ODE_INDICES
+
+    sv_all <- sv_block_indices(deltaq)
+    ev_all <- ev_block_indices(deltaq, spor_len)
+    iv_all <- iv_block_indices(deltaq, spor_len)
+
+    # q=0 (index 1 in each block) = unexposed/baseline; q≥1 = ATN-exposed.
+    sv_unexp <- sv_all[[1L]];          sv_exp <- sv_all[-1L]
+    ev_unexp <- ev_all[seq_len(spor_len)]; ev_exp <- ev_all[-seq_len(spor_len)]
+    iv_unexp <- iv_all[[1L]];          iv_exp <- iv_all[-1L]
+
+    n_states <- 3L + (deltaq + 1L) * (2L + spor_len)
+
+    function(timestep) {
+      for (s_i in seq_along(solvers)) {
+        sp  <- parameters$species[[s_i]]
+        row <- if (parameters$species_proportions[[s_i]] > 0)
+          solvers[[s_i]]$get_states() else rep(0, n_states)
+
+        # Aquatic stages (E, L, P)
+        for (i in seq_along(ode_idx))
+          renderer$render(paste0(names(ode_idx)[[i]], '_', sp, '_count'),
+                          row[[ode_idx[[i]]]], timestep)
+
+        # Adult: unexposed (q=0) and exposed (q=1..deltaq), summed over Erlang stages
+        renderer$render(paste0('Sv_unexposed_', sp, '_count'), row[[sv_unexp]],      timestep)
+        renderer$render(paste0('Sv_exposed_',   sp, '_count'), sum(row[sv_exp]),     timestep)
+        renderer$render(paste0('Ev_unexposed_', sp, '_count'), sum(row[ev_unexp]),   timestep)
+        renderer$render(paste0('Ev_exposed_',   sp, '_count'), sum(row[ev_exp]),     timestep)
+        renderer$render(paste0('Iv_unexposed_', sp, '_count'), row[[iv_unexp]],      timestep)
+        renderer$render(paste0('Iv_exposed_',   sp, '_count'), sum(row[iv_exp]),     timestep)
       }
-      for (i in seq_along(indices)) {
-        renderer$render(
-          paste0(names(indices)[[i]], '_', parameters$species[[s_i]], '_count'),
-          row[[i]],
-          timestep
-        )
-      }
-      counts <- counts + row
     }
   }
 }

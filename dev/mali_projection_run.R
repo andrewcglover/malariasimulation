@@ -27,7 +27,7 @@ OUT_FILE  <- "dev/outputs/mali_projection_results.rds"
 FORK_PATH <- normalizePath(".")          # for pkgload::load_all() in workers
 N_CORES   <- max(1L, parallel::detectCores() - 1L)
 
-human_pop      <- 1000L   # per-region population (smooth single-run incidence)
+human_pop      <- 10000L   # per-region population (smooth single-run incidence)
 n_future_years <- 6L
 arms           <- c("none", "cfp", "atn", "pyr_atn")
 retention_time <- 588      # mean net-retention (days) for the FUTURE CD schedule
