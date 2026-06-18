@@ -133,58 +133,58 @@ p_avert <- ggplot(averted_tbl, aes(arm_f, averted_rate, fill = arm_f)) +
 
 print(p_avert)
 
-# 4. EIR
-p_EIR_arabiensis <- ggplot(df_plot, aes(year_rel + future_start_year, EIR_arabiensis, colour = arm_f)) +
+# 4. EIR (bites / person / day)
+p_EIR_arabiensis <- ggplot(df_plot, aes(year_rel + future_start_year, EIR_arabiensis_pp, colour = arm_f)) +
   geom_vline(data = vline_df, aes(xintercept = xintercept),
              linetype = "dashed", colour = "grey40", linewidth = 0.4) +
   geom_line(linewidth = 0.7) +
   scale_colour_manual(values = arm_cols) +
   theme_minimal(base_size = 12) +
   labs(x = "Years relative to first future distribution",
-       y = "EIR arabiensis",
+       y = "EIR arabiensis (bites/person/day)",
        colour = "",
        title  = sprintf("%s", test_region))
 
 print(p_EIR_arabiensis)
 
-p_EIR_funestus <- ggplot(df_plot, aes(year_rel + future_start_year, EIR_funestus, colour = arm_f)) +
+p_EIR_funestus <- ggplot(df_plot, aes(year_rel + future_start_year, EIR_funestus_pp, colour = arm_f)) +
   geom_vline(data = vline_df, aes(xintercept = xintercept),
              linetype = "dashed", colour = "grey40", linewidth = 0.4) +
   geom_line(linewidth = 0.7) +
   scale_colour_manual(values = arm_cols) +
   theme_minimal(base_size = 12) +
   labs(x = "Years relative to first future distribution",
-       y = "EIR funestus",
+       y = "EIR funestus (bites/person/day)",
        colour = "",
        title  = sprintf("%s", test_region))
 
 print(p_EIR_funestus)
 
-p_EIR_gambiae <- ggplot(df_plot, aes(year_rel + future_start_year, EIR_gambiae, colour = arm_f)) +
+p_EIR_gambiae <- ggplot(df_plot, aes(year_rel + future_start_year, EIR_gambiae_pp, colour = arm_f)) +
   geom_vline(data = vline_df, aes(xintercept = xintercept),
              linetype = "dashed", colour = "grey40", linewidth = 0.4) +
   geom_line(linewidth = 0.7) +
   scale_colour_manual(values = arm_cols) +
   theme_minimal(base_size = 12) +
   labs(x = "Year",
-       y = "EIR gambiae",
+       y = "EIR gambiae (bites/person/day)",
        colour = "",
        title  = sprintf("%s", test_region))
 
 print(p_EIR_gambiae)
 
-# 4b. EIR by species, combined plot
+# 4b. EIR by species, combined plot (bites / person / day)
 
 eir_plot <- df_plot |>
   dplyr::select(
     year_rel, arm_f,
-    dplyr::matches("^EIR_(gambiae|arabiensis|funestus)$")
+    dplyr::matches("^EIR_(gambiae|arabiensis|funestus)_pp$")
   ) |>
   tidyr::pivot_longer(
-    cols = dplyr::matches("^EIR_(gambiae|arabiensis|funestus)$"),
+    cols = dplyr::matches("^EIR_(gambiae|arabiensis|funestus)_pp$"),
     names_to = "species",
-    names_prefix = "EIR_",
-    values_to = "EIR"
+    names_pattern = "^EIR_(gambiae|arabiensis|funestus)_pp$",
+    values_to = "EIR_pp"
   ) |>
   dplyr::mutate(
     species = factor(
@@ -198,7 +198,7 @@ p_eir_all <- ggplot(
   eir_plot,
   aes(
     x = year_rel + future_start_year,
-    y = EIR,
+    y = EIR_pp,
     colour = arm_f,
     group = arm_f
   )
@@ -216,7 +216,7 @@ p_eir_all <- ggplot(
   theme_minimal(base_size = 12) +
   labs(
     x = "Years relative to first future distribution",
-    y = "EIR",
+    y = "EIR (bites/person/day)",
     colour = "",
     title = sprintf("%s", test_region)
   )
@@ -380,3 +380,94 @@ p_vec_all <- ggplot(
   )
 
 print(p_vec_all)
+
+
+# 6. Percentage ATN-exposed by species and compartment
+
+plot_dat_exp <- dplyr::bind_rows(compartment_dat, total_dat) |>
+  dplyr::mutate(
+    pct_atn_exposed = dplyr::if_else(
+      all_count > 0,
+      atn_exposed_count / all_count * 100,
+      NA_real_
+    ),
+    compartment = factor(compartment, levels = c("Sv", "Ev", "Iv", "total")),
+    species = factor(species, levels = c("gambiae", "arabiensis", "funestus"))
+  ) |>
+  dplyr::group_by(year_rel, arm_f, species, compartment) |>
+  dplyr::summarise(
+    atn_exposed_count = sum(atn_exposed_count, na.rm = TRUE),
+    all_count = sum(all_count, na.rm = TRUE),
+    pct_atn_exposed = dplyr::if_else(
+      all_count > 0,
+      atn_exposed_count / all_count * 100,
+      NA_real_
+    ),
+    .groups = "drop"
+  )
+
+plot_pct_exposed_one_species <- function(sp) {
+  ggplot(
+    dplyr::filter(plot_dat_exp, species == sp),
+    aes(
+      x = year_rel + future_start_year,
+      y = pct_atn_exposed,
+      colour = arm_f,
+      group = arm_f
+    )
+  ) +
+    geom_vline(
+      data = vline_df,
+      aes(xintercept = xintercept),
+      linetype = "dashed",
+      colour = "grey40",
+      linewidth = 0.4
+    ) +
+    geom_line(linewidth = 0.7) +
+    facet_wrap(~ compartment, scales = "free_y", ncol = 2) +
+    scale_colour_manual(values = arm_cols) +
+    theme_minimal(base_size = 12) +
+    labs(
+      x = "Years relative to first future distribution",
+      y = "ATN-exposed mosquitoes (%)",
+      colour = "",
+      title = sprintf("%s: %s", test_region, species_labs[[sp]])
+    )
+}
+
+p_vec_exp_gambiae    <- plot_pct_exposed_one_species("gambiae")
+p_vec_exp_arabiensis <- plot_pct_exposed_one_species("arabiensis")
+p_vec_exp_funestus   <- plot_pct_exposed_one_species("funestus")
+
+print(p_vec_exp_gambiae)
+print(p_vec_exp_arabiensis)
+print(p_vec_exp_funestus)
+
+p_vec_exp_all <- ggplot(
+  plot_dat_exp,
+  aes(
+    x = year_rel + future_start_year,
+    y = pct_atn_exposed,
+    colour = arm_f,
+    group = arm_f
+  )
+) +
+  geom_vline(
+    data = vline_df,
+    aes(xintercept = xintercept),
+    linetype = "dashed",
+    colour = "grey40",
+    linewidth = 0.4
+  ) +
+  geom_line(linewidth = 0.7) +
+  facet_grid(compartment ~ species, scales = "free_y") +
+  scale_colour_manual(values = arm_cols) +
+  theme_minimal(base_size = 12) +
+  labs(
+    x = "Years relative to first future distribution",
+    y = "ATN-exposed mosquitoes (%)",
+    colour = "",
+    title = sprintf("%s", test_region)
+  )
+
+print(p_vec_exp_all)

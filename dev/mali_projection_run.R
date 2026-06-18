@@ -284,7 +284,10 @@ run_one <- function(row) {
       arm       = arm,
       year_rel  = (timestep - future_start_day) / 365,
       pfpr2to10 = n_detect_lm_730_3649 / n_age_730_3649,
-      clin_inc  = n_inc_clinical_0_1824 + n_inc_clinical_1825_5474 + n_inc_clinical_5475_36499
+      clin_inc  = n_inc_clinical_0_1824 + n_inc_clinical_1825_5474 + n_inc_clinical_5475_36499,
+      EIR_gambiae_pp    = EIR_gambiae    / human_pop,
+      EIR_arabiensis_pp = EIR_arabiensis / human_pop,
+      EIR_funestus_pp   = EIR_funestus   / human_pop
     )
 }
 
