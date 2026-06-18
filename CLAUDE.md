@@ -299,3 +299,9 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   through the ITN-side `dn0`/`rn` in the net schedule (now resistance-projected); the ATN kernel's
   `dn0_atn` represents only the antimalarial's extra mortality (default 0) — avoids double-counting.
   See §3 "Repellency / pyrethroid-resistance coupling" for why repellency lives in `a`, not `delta_atn`.
+- **Kernel invariant tests added (2026-06-18):** `tests/testthat/test-atn-mosquito.R` §12d —
+  six `compute_atn_kernels()` invariants covering ATN-off baseline collapse, pre-distribution zero,
+  `p_atn` gating, active proportionality, minimum dimensions (`deltaq=1,spor_len=1` NaN guard), and
+  per-species `phi_bednets[[s]]` indexing (Concern 3). Run after `devtools::load_all()` via
+  `devtools::test_file("tests/testthat/test-atn-mosquito.R")` or select-all-and-run in editor.
+  Resistance-sensitivity verification stays in `dev/mali_single_region_test.R` (needs full sim).

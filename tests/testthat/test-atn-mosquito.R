@@ -112,6 +112,129 @@ test_that('ATN extra mortality reduces total infectious mosquitoes', {
 })
 
 
+# ── 12d: compute_atn_kernels invariants — pure R, no ODE stepping ─────────────
+#
+# Each test calls compute_atn_kernels() directly; no solver is stepped so these
+# run in milliseconds and are safe to select-all-and-run after devtools::load_all().
+
+test_that('compute_atn_kernels: ATN-off defaults collapse to baseline', {
+  # With p_atn=0 and Q0_atn=0 (defaults), coverage Q_t=0 and delta_atn=0.
+  # Lambda_i should equal foim everywhere; rho_i should equal rho everywhere.
+  parameters <- get_parameters()
+  parameters <- set_equilibrium(parameters, 50.)
+  foim <- parameters$init_foim
+  rho  <- parameters$spor_len / parameters$dem
+  deltaqp1 <- parameters$deltaq + 1L
+
+  k <- compute_atn_kernels(1L, parameters, foim, 1L)
+
+  expect_equal(k$delta_atn, 0)
+  expect_equal(k$dn_atn,    0)
+  expect_equal(k$Lambda0_t, foim)
+  expect_equal(k$Lambda_i,  rep(foim, deltaqp1))
+  expect_equal(k$rho_i,     rep(rho,  deltaqp1))
+})
+
+test_that('compute_atn_kernels: zero exposure before first distribution round', {
+  # Q_t=0 when timestep < t0_atn, regardless of p_atn / Q0_atn values.
+  parameters <- get_parameters(list(
+    p_atn      = 0.9,
+    Q0_atn     = 0.8,
+    t0_atn     = 200L,
+    lambda_atn = 0       # no decay — makes Q_t unambiguous after t0_atn
+  ))
+  parameters <- set_equilibrium(parameters, 50.)
+  foim <- parameters$init_foim
+
+  k <- compute_atn_kernels(199L, parameters, foim, 1L)
+
+  expect_equal(k$delta_atn, 0)
+  expect_equal(k$dn_atn,    0)
+  expect_equal(k$Lambda0_t, foim)
+})
+
+test_that('compute_atn_kernels: p_atn=0 gates mosquito exposure even with coverage', {
+  # Q_t > 0 after t0_atn, but p_atn=0 means no mosquito makes drug contact.
+  parameters <- get_parameters(list(
+    p_atn      = 0,
+    Q0_atn     = 0.8,
+    t0_atn     = 1L,
+    lambda_atn = 0
+  ))
+  parameters <- set_equilibrium(parameters, 50.)
+  foim <- parameters$init_foim
+
+  k <- compute_atn_kernels(100L, parameters, foim, 1L)
+
+  expect_equal(k$delta_atn, 0)
+})
+
+test_that('compute_atn_kernels: active kernel gives correct delta_atn', {
+  # With no coverage decay (lambda_atn=0) and a single round of Q0_atn=0.8,
+  # Q_t == 0.8 at all timesteps >= t0_atn, so delta_atn = p_atn * phi * 0.8.
+  parameters <- get_parameters(list(
+    p_atn      = 0.9,
+    Q0_atn     = 0.8,
+    t0_atn     = 1L,
+    lambda_atn = 0
+  ))
+  parameters <- set_equilibrium(parameters, 50.)
+  foim <- parameters$init_foim
+  phi  <- parameters$phi_bednets[[1]]
+
+  k <- compute_atn_kernels(100L, parameters, foim, 1L)
+
+  expect_equal(k$delta_atn, 0.9 * phi * 0.8, tolerance = 1e-10)
+  expect_gt(k$delta_atn, 0)
+})
+
+test_that('compute_atn_kernels: minimum dimensions (deltaq=1, spor_len=1) are finite', {
+  # Guards the s[1]<-0 NaN-prevention for the Hill-kernel computation
+  # and the spor_len=1 / deltaq=1 empty-loop edge cases.
+  parameters <- get_parameters(list(
+    deltaq     = 1L,
+    spor_len   = 1L,
+    p_atn      = 0.9,
+    Q0_atn     = 0.8,
+    t0_atn     = 1L,
+    lambda_atn = 0
+  ))
+  parameters <- set_equilibrium(parameters, 50.)
+  foim <- parameters$init_foim
+
+  k <- compute_atn_kernels(50L, parameters, foim, 1L)
+
+  expect_equal(length(k$Lambda_i), 2L)   # deltaq + 1 = 2
+  expect_equal(length(k$rho_i),    2L)
+  expect_equal(length(k$B_post),   1L)   # spor_len = 1
+  expect_true(all(is.finite(unlist(k))))
+})
+
+test_that('compute_atn_kernels: delta_atn is species-specific via phi_bednets', {
+  # Concern 3: phi_bednets[[species]] must index correctly for each species.
+  # With three species, each should give p_atn * phi_s * Q_t for its own phi.
+  parameters <- get_parameters(list(
+    p_atn      = 0.9,
+    Q0_atn     = 0.8,
+    t0_atn     = 1L,
+    lambda_atn = 0
+  ))
+  parameters <- set_species(
+    parameters,
+    list(gamb_params, arab_params, fun_params),
+    c(0.4, 0.3, 0.3)
+  )
+  parameters <- set_equilibrium(parameters, 50.)
+  foim <- parameters$init_foim
+
+  for (s in 1:3) {
+    k   <- compute_atn_kernels(100L, parameters, foim, s)
+    phi <- parameters$phi_bednets[[s]]
+    expect_equal(k$delta_atn, 0.9 * phi * 0.8, tolerance = 1e-10,
+                 label = paste0('species ', s))
+  }
+})
+
 # ── 12c: Full simulation with ATN parameters completes without error ──────────
 
 test_that('run_simulation completes with ATN parameters set', {
