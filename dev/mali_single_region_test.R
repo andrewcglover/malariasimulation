@@ -502,12 +502,16 @@ plot_dat_exp <- dplyr::bind_rows(compartment_dat, total_dat) |>
   ) |>
   dplyr::group_by(arm_f, species, compartment) |>
   dplyr::arrange(year_rel, .by_group = TRUE) |>
-  dplyr::mutate(pct_roll = zoo::rollmean(pct_atn_exposed, k = 365L, fill = NA, align = "center")) |>
+  dplyr::mutate(
+    pct_roll = zoo::rollmean(pct_atn_exposed, k = 365L, fill = NA, align = "center"),
+    pct_roll = dplyr::if_else(year_rel >= 0.5, pct_roll, NA_real_)
+  ) |>
   dplyr::ungroup()
 
 plot_pct_exposed_one_species <- function(sp) {
   ggplot(
-    dplyr::filter(plot_dat_exp, species == sp),
+    dplyr::filter(plot_dat_exp, species == sp,
+                  arm_f %in% c("Future ATN", "Future Pyr-ATN")),
     aes(
       x = year_rel + future_start_year,
       y = pct_atn_exposed,
@@ -548,7 +552,7 @@ save_plot(p_vec_exp_arabiensis, "vec_exp_arabiensis", width = 8, height = 7)
 save_plot(p_vec_exp_funestus,   "vec_exp_funestus",   width = 8, height = 7)
 
 p_vec_exp_all <- ggplot(
-  plot_dat_exp,
+  dplyr::filter(plot_dat_exp, arm_f %in% c("Future ATN", "Future Pyr-ATN")),
   aes(
     x = year_rel + future_start_year,
     y = pct_atn_exposed,
