@@ -25,7 +25,7 @@ source("dev/InterventionExpansion.R")
 SITE_FILE <- "dev/site_files/without_split/MLI.rds"
 OUT_FILE  <- "dev/outputs/mali_projection_results.rds"
 FORK_PATH <- normalizePath(".")          # for pkgload::load_all() in workers
-N_CORES   <- max(1L, parallel::detectCores() - 1L)
+N_CORES   <- min(8L, max(1L, parallel::detectCores() - 1L))
 
 human_pop      <- 10000L   # per-region population (smooth single-run incidence)
 n_future_years <- 6L
@@ -236,7 +236,8 @@ build_params <- function(region, arm) {
     vectors       = ms_ext$vectors$vector_species,
     seasonality   = ms_ext$seasonality$seasonality_parameters,
     eir           = ms$eir$eir,
-    overrides     = c(render_overrides, form_overrides, atn_overrides)
+    overrides     = c(render_overrides, form_overrides, atn_overrides,
+                      list(ode_max_steps = 1e7))
   )
 
   # 6d. Combined net schedule: past (from site df) + future (CD, arm-specific).
@@ -276,19 +277,23 @@ build_params <- function(region, arm) {
 # ---------------------------------------------------------------------
 run_one <- function(row) {
   region <- row$region; arm <- row$arm
-  p <- build_params(region, arm)
-  r <- run_simulation(timesteps = n_steps, parameters = p)
-  as.data.frame(r) |>
-    mutate(
-      region    = region,
-      arm       = arm,
-      year_rel  = (timestep - future_start_day) / 365,
-      pfpr2to10 = n_detect_lm_730_3649 / n_age_730_3649,
-      clin_inc  = n_inc_clinical_0_1824 + n_inc_clinical_1825_5474 + n_inc_clinical_5475_36499,
-      EIR_gambiae_pp    = EIR_gambiae    / human_pop,
-      EIR_arabiensis_pp = EIR_arabiensis / human_pop,
-      EIR_funestus_pp   = EIR_funestus   / human_pop
-    )
+  tryCatch({
+    p <- build_params(region, arm)
+    r <- run_simulation(timesteps = n_steps, parameters = p)
+    as.data.frame(r) |>
+      mutate(
+        region    = region,
+        arm       = arm,
+        year_rel  = (timestep - future_start_day) / 365,
+        pfpr2to10 = n_detect_lm_730_3649 / n_age_730_3649,
+        clin_inc  = n_inc_clinical_0_1824 + n_inc_clinical_1825_5474 + n_inc_clinical_5475_36499,
+        EIR_gambiae_pp    = EIR_gambiae    / human_pop,
+        EIR_arabiensis_pp = EIR_arabiensis / human_pop,
+        EIR_funestus_pp   = EIR_funestus   / human_pop
+      )
+  }, error = function(e) {
+    list(.__error__ = TRUE, region = region, arm = arm, message = conditionMessage(e))
+  })
 }
 
 # ---------------------------------------------------------------------
@@ -326,7 +331,18 @@ res_list <- parallel::parLapplyLB(cl, rows, run_one)
 message(sprintf("Done %d runs in %.0f s", length(rows),
                 proc.time()[["elapsed"]] - t0))
 
-df_full <- dplyr::bind_rows(res_list)
+is_error <- vapply(res_list, function(x) isTRUE(x$.__error__), logical(1))
+if (any(is_error)) {
+  failures <- dplyr::bind_rows(lapply(res_list[is_error], function(x)
+    data.frame(region = x$region, arm = x$arm, message = x$message,
+               stringsAsFactors = FALSE)))
+  message(sprintf("WARNING: %d job(s) failed and excluded from output:", sum(is_error)))
+  print(failures)
+  write.csv(failures,
+            sub("\\.rds$", "_failures.csv", OUT_FILE),
+            row.names = FALSE)
+}
+df_full <- dplyr::bind_rows(res_list[!is_error])
 dir.create(dirname(OUT_FILE), recursive = TRUE, showWarnings = FALSE)
 saveRDS(list(
   results        = df_full,

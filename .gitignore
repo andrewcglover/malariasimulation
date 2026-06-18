@@ -17,3 +17,4 @@ tests/testthat/fixtures/
 dev/prompts/
 # site files — access-controlled malariaverse data; do not push
 dev/site_files/
+dev/outputs/
