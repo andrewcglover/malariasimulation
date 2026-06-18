@@ -173,6 +173,56 @@ p_EIR_gambiae <- ggplot(df_plot, aes(year_rel + future_start_year, EIR_gambiae, 
 
 print(p_EIR_gambiae)
 
+# 4b. EIR by species, combined plot
+
+eir_plot <- df_plot |>
+  dplyr::select(
+    year_rel, arm_f,
+    dplyr::matches("^EIR_(gambiae|arabiensis|funestus)$")
+  ) |>
+  tidyr::pivot_longer(
+    cols = dplyr::matches("^EIR_(gambiae|arabiensis|funestus)$"),
+    names_to = "species",
+    names_prefix = "EIR_",
+    values_to = "EIR"
+  ) |>
+  dplyr::mutate(
+    species = factor(
+      species,
+      levels = c("gambiae", "arabiensis", "funestus"),
+      labels = c("gambiae", "arabiensis", "funestus")
+    )
+  )
+
+p_eir_all <- ggplot(
+  eir_plot,
+  aes(
+    x = year_rel + future_start_year,
+    y = EIR,
+    colour = arm_f,
+    group = arm_f
+  )
+) +
+  geom_vline(
+    data = vline_df,
+    aes(xintercept = xintercept),
+    linetype = "dashed",
+    colour = "grey40",
+    linewidth = 0.4
+  ) +
+  geom_line(linewidth = 0.7) +
+  facet_wrap(~ species, nrow = 1) +
+  scale_colour_manual(values = arm_cols) +
+  theme_minimal(base_size = 12) +
+  labs(
+    x = "Years relative to first future distribution",
+    y = "EIR",
+    colour = "",
+    title = sprintf("%s", test_region)
+  )
+
+print(p_eir_all)
+
 # 5. Vector counts by species and compartment
 #    Solid = all mosquitoes (ATN-exposed + unexposed)
 #    Dashed = ATN-exposed only
