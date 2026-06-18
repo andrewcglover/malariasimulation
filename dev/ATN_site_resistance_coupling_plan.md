@@ -74,6 +74,18 @@ Snapshot the working tree before any new edits. ATN work goes to **`atn-dev`**, 
 
 ## Part B — Full feeding-cycle coupling for ATN repellency (`R/biting_process.R`)
 
+> **RESOLVED (2026-06-18): no code change — already satisfied.** Reading the ODE showed the exposure
+> rate is `av_da = a * delta_atn`, and `a` (`R/biting_process.R:118`) is already the full
+> feeding-cycle-adjusted biting rate (built from `W`/`Z`, which embed the resistance-decayed net
+> `sn`/`rn`). So pyrethroid repellency/resistance already couples into ATN exposure through `a`, and
+> Part A makes that resistance *projected*. Adding repellency to `delta_atn` would double-count against
+> `a`; coupling its *coverage* to the `W`/`Z` net population would wrongly include historical pyrethroid
+> ITNs still in circulation after the first ATN campaign (those suppress biting but deliver no drug —
+> `Q_atn_t` is correctly ATN-event-only). Decision recorded in `CLAUDE.md` §3. Verification deferred:
+> fast deterministic invariants → `tests/testthat/test-atn-mosquito.R`; resistance/transition
+> sensitivity → `dev/mali_single_region_test.R` (too slow/stochastic for unit tests). The original
+> design sketch below is retained for context only.
+
 Goal: make ATN drug-contact and Pyr-ATN pyrethroid effects flow through the same resistance-/species-
 dependent feeding-cycle accounting (`w`/`z`) the ITN model already uses, per the reference's 8-category
 expansion (`malariasimple_aitn_deterministic_v3.R:925–994`).

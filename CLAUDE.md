@@ -58,6 +58,27 @@ Indices:
 the antimalarial on an attempted bite. A mosquito biting an ATN host (rate `av*delta_atn`) moves
 into exposure compartment 2. `Q_atn_t` = total ATN coverage across distribution events.
 
+**Repellency / pyrethroid-resistance coupling — DESIGN DECISION (confirmed 2026-06-18).**
+`delta_atn` deliberately carries **no** repellency/`rn` term, and this is correct, not a gap. The
+exposure *rate* into the model is `av_da = a * delta_atn`, and `a` (malariasimulation's human blood
+meal rate, `R/biting_process.R:118`) is already the full feeding-cycle-adjusted rate: it is built
+from `W`/`Z` (`average_p_successful`/`average_p_repelled`), which embed the per-individual,
+resistance-decayed net survival `sn` and repellency `rn` from `prob_survives_bednets` /
+`prob_repelled_bednets`. So pyrethroid repellency/mortality — and its projected resistance trend —
+flow into ATN exposure **through `a`**. Adding an `(1 - rn)` factor to `delta_atn` would
+**double-count** repellency. The reference's `av*delta_atn` (v3 lines 539–540) is exactly this
+structure. Pyr-ATN benefits emerge automatically: resistance ↑ ⇒ `rn`/`dn` ↓ ⇒ less repelling ⇒
+`a` ↑ ⇒ more antimalarial exposure. The full per-net-category `av_mosq[i] = av*w[i]/wh` (v3
+commented 8-category block, lines ~925–994) is the only further refinement and is a large
+structural change to the mosquito model — not pursued.
+
+**Coverage is ATN-only by design.** `Q_atn_t` is built solely from the ATN distribution events
+(`Q0_atn`/`t0_atn`) in `compute_atn_kernels`, so it correctly **excludes** historical pyrethroid
+ITNs still in circulation after the first ATN campaign — those suppress biting (via per-individual
+`net_time` in `a`) but deliver no drug. Do **not** couple `delta_atn`'s coverage to the `W`/`Z`
+net-using population: that population includes the historical ITN users and would mis-attribute drug
+exposure to them during the ITN→ATN transition.
+
 **Four drug effects** (all decay across exposure compartments via Hill kernels, optionally
 Bompard TRA→field-TBA transformed; see v3 lines ~430–467):
 
@@ -263,3 +284,18 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   handle per-species vectors; single-species `get_parameters()` defaults keep those as scalars.
 - **Validated run times (Mopti, n=1000, 31-year horizon, deltaq=10):** none ≈ 126 s,
   cfp ≈ 137 s, atn ≈ 229 s, pyr_atn ≈ 215 s (per arm, sequential, Windows local).
+- **Net retention is site-sourced (changed 2026-06-18).** `retention_time` is no longer hardcoded;
+  it reads `unique(site_obj$interventions$mean_retention)` (≈2014 d for MLI), with a top-of-script
+  `retention_override <- NULL` hook for manual override. NB: the site value is far longer than the
+  old hardcoded 588 d and materially changes the CD top-up coverage math (`cd_cov`).
+- **Future net efficacy is resistance-projected per distribution year (changed 2026-06-18).**
+  `build_future_schedule(arm, region)` (was `(arm, res)`) looks up projected pyrethroid resistance
+  from `site_obj$vectors$pyrethroid_resistance` — a per-region, per-year table spanning **2000–2050**
+  (NOT `interventions`, which only carries 2024 forward) — mapping each grid timestep to its calendar
+  year (`start_year + grid %/% 365`) and calling `med_net(pars, res_year)`. So `dn0`/`rn`/`gamman`
+  now vary across the future window in step with the rising resistance trend (verified Mopti:
+  2025≈0.82 → 2031≈0.92). Past nets already read per-row site efficacy (unchanged).
+- **`dn0_atn` override dropped for `pyr_atn` (2026-06-18).** Pyrethroid mortality for Pyr-ATN flows
+  through the ITN-side `dn0`/`rn` in the net schedule (now resistance-projected); the ATN kernel's
+  `dn0_atn` represents only the antimalarial's extra mortality (default 0) — avoids double-counting.
+  See §3 "Repellency / pyrethroid-resistance coupling" for why repellency lives in `a`, not `delta_atn`.

@@ -173,132 +173,160 @@ p_EIR_gambiae <- ggplot(df_plot, aes(year_rel + future_start_year, EIR_gambiae, 
 
 print(p_EIR_gambiae)
 
-# 5. 
-
-library(dplyr)
-library(tidyr)
-library(ggplot2)
-library(purrr)
+# 5. Vector counts by species and compartment
+#    Solid = all mosquitoes (ATN-exposed + unexposed)
+#    Dashed = ATN-exposed only
+#    Difference between solid and dashed = ATN-unexposed implicitly
 
 species_vec <- c("gambiae", "arabiensis", "funestus")
+species_labs <- c(
+  gambiae    = "gambiae",
+  arabiensis = "arabiensis",
+  funestus   = "funestus"
+)
 
-df2 <- df %>%
-  mutate(
-    row_id = row_number(),
-    human_pop = n_age_0_1824 + n_age_1825_5474 + n_age_5475_36499
+df_vec <- df |>
+  dplyr::filter(year_rel >= -3) |>
+  dplyr::mutate(
+    row_id = dplyr::row_number(),
+    human_pop = n_age_0_1824 + n_age_1825_5474 + n_age_5475_36499,
+    arm_f = factor(arm_labels[arm], levels = arm_labels)
   )
 
-vector_long <- df2 %>%
-  select(
-    row_id, year_rel, arm, region, human_pop,
-    matches("^(Sv|Ev|Iv)_(unexposed|exposed)_(gambiae|arabiensis|funestus)_count$")
-  ) %>%
-  pivot_longer(
-    cols = matches("^(Sv|Ev|Iv)_(unexposed|exposed)_(gambiae|arabiensis|funestus)_count$"),
+vector_long <- df_vec |>
+  dplyr::select(
+    row_id, year_rel, arm, arm_f, region, human_pop,
+    dplyr::matches("^(Sv|Ev|Iv)_(unexposed|exposed)_(gambiae|arabiensis|funestus)_count$")
+  ) |>
+  tidyr::pivot_longer(
+    cols = dplyr::matches("^(Sv|Ev|Iv)_(unexposed|exposed)_(gambiae|arabiensis|funestus)_count$"),
     names_to = c("compartment", "exposure", "species"),
     names_pattern = "^(Sv|Ev|Iv)_(unexposed|exposed)_(gambiae|arabiensis|funestus)_count$",
     values_to = "count"
   )
 
-compartment_dat <- vector_long %>%
-  group_by(row_id, year_rel, arm, region, species, compartment) %>%
-  summarise(
+compartment_dat <- vector_long |>
+  dplyr::group_by(row_id, year_rel, arm_f, species, compartment) |>
+  dplyr::summarise(
     all_count = sum(count, na.rm = TRUE),
     atn_exposed_count = sum(count[exposure == "exposed"], na.rm = TRUE),
-    human_pop = first(human_pop),
+    human_pop = dplyr::first(human_pop),
     .groups = "drop"
   )
 
-total_dat <- vector_long %>%
-  group_by(row_id, year_rel, arm, region, species) %>%
-  summarise(
+total_dat <- vector_long |>
+  dplyr::group_by(row_id, year_rel, arm_f, species) |>
+  dplyr::summarise(
     compartment = "total",
     all_count = sum(count, na.rm = TRUE),
     atn_exposed_count = sum(count[exposure == "exposed"], na.rm = TRUE),
-    human_pop = first(human_pop),
+    human_pop = dplyr::first(human_pop),
     .groups = "drop"
   )
 
-plot_dat <- bind_rows(compartment_dat, total_dat) %>%
-  pivot_longer(
+plot_dat <- dplyr::bind_rows(compartment_dat, total_dat) |>
+  tidyr::pivot_longer(
     cols = c(all_count, atn_exposed_count),
     names_to = "line",
     values_to = "count"
-  ) %>%
-  mutate(
-    line = recode(
+  ) |>
+  dplyr::mutate(
+    line = dplyr::recode(
       line,
-      all_count = "All: ATN-exposed + unexposed",
+      all_count = "All mosquitoes",
       atn_exposed_count = "ATN-exposed only"
     ),
     compartment = factor(compartment, levels = c("Sv", "Ev", "Iv", "total")),
     species = factor(species, levels = c("gambiae", "arabiensis", "funestus"))
-  ) %>%
-  group_by(year_rel, arm, species, compartment, line) %>%
-  summarise(
+  ) |>
+  dplyr::group_by(year_rel, arm_f, species, compartment, line) |>
+  dplyr::summarise(
     count = sum(count, na.rm = TRUE),
     human_pop = sum(human_pop, na.rm = TRUE),
     mosquitoes_per_human = count / human_pop,
     .groups = "drop"
   )
 
+# Species-specific plots (4 facets each: Sv, Ev, Iv, total)
 plot_one_species <- function(sp) {
   ggplot(
-    filter(plot_dat, species == sp),
+    dplyr::filter(plot_dat, species == sp),
     aes(
-      x = year_rel,
+      x = year_rel + future_start_year,
       y = mosquitoes_per_human,
-      colour = arm,
+      colour = arm_f,
       linetype = line,
-      group = interaction(arm, line)
+      group = interaction(arm_f, line)
     )
   ) +
-    geom_line(linewidth = 0.8) +
+    geom_vline(
+      data = vline_df,
+      aes(xintercept = xintercept),
+      linetype = "dashed",
+      colour = "grey40",
+      linewidth = 0.4
+    ) +
+    geom_line(linewidth = 0.7) +
     facet_wrap(~ compartment, scales = "free_y", ncol = 2) +
+    scale_colour_manual(values = arm_cols) +
     scale_linetype_manual(
       values = c(
-        "All: ATN-exposed + unexposed" = "solid",
+        "All mosquitoes" = "solid",
         "ATN-exposed only" = "dashed"
       )
     ) +
+    theme_minimal(base_size = 12) +
     labs(
-      x = "Year relative to intervention",
+      x = "Years relative to first future distribution",
       y = "Mosquitoes per human",
-      colour = "Arm",
-      linetype = NULL,
-      title = paste("Vector compartments over time:", sp)
-    ) +
-    theme_bw()
+      colour = "",
+      linetype = "",
+      title = sprintf("%s: %s", test_region, species_labs[[sp]])
+    )
 }
 
-plots <- map(species_vec, plot_one_species)
+p_vec_gambiae    <- plot_one_species("gambiae")
+p_vec_arabiensis <- plot_one_species("arabiensis")
+p_vec_funestus   <- plot_one_species("funestus")
 
-plots[[1]]  # gambiae
-plots[[2]]  # arabiensis
-plots[[3]]  # funestus
+print(p_vec_gambiae)
+print(p_vec_arabiensis)
+print(p_vec_funestus)
 
-ggplot(
+# Combined facet plot: rows = species, cols = compartment
+p_vec_all <- ggplot(
   plot_dat,
   aes(
-    x = year_rel,
+    x = year_rel + future_start_year,
     y = mosquitoes_per_human,
-    colour = arm,
+    colour = arm_f,
     linetype = line,
-    group = interaction(arm, line)
+    group = interaction(arm_f, line)
   )
 ) +
-  geom_line(linewidth = 0.8) +
-  facet_grid(species ~ compartment, scales = "free_y") +
+  geom_vline(
+    data = vline_df,
+    aes(xintercept = xintercept),
+    linetype = "dashed",
+    colour = "grey40",
+    linewidth = 0.4
+  ) +
+  geom_line(linewidth = 0.7) +
+  facet_grid(compartment ~ species, scales = "free_y") +
+  scale_colour_manual(values = arm_cols) +
   scale_linetype_manual(
     values = c(
-      "All: ATN-exposed + unexposed" = "solid",
+      "All mosquitoes" = "solid",
       "ATN-exposed only" = "dashed"
     )
   ) +
+  theme_minimal(base_size = 12) +
   labs(
-    x = "Year relative to intervention",
-    y = "Mosquitoes per human",
-    colour = "Arm",
-    linetype = NULL
-  ) +
-  theme_bw()
+    x = "Year",
+    y = "Adult female mosquitoes per human",
+    colour = "",
+    linetype = "",
+    title = sprintf("%s", test_region)
+  )
+
+print(p_vec_all)

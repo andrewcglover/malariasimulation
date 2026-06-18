@@ -30,8 +30,20 @@ N_CORES   <- max(1L, parallel::detectCores() - 1L)
 human_pop      <- 10000L   # per-region population (smooth single-run incidence)
 n_future_years <- 6L
 arms           <- c("none", "cfp", "atn", "pyr_atn")
-retention_time <- 588      # mean net-retention (days) for the FUTURE CD schedule
+retention_override <- NULL # numeric (days) to override site mean_retention (default: use site)
 deltaq_use     <- 10L
+
+# Load the site early: net retention is sourced from it (used by the CD math below).
+site_obj <- readRDS(SITE_FILE)
+
+# Net retention (days): site mean_retention unless manually overridden.
+# NB: site mean_retention (~2014 d) is much longer than the previous hardcoded
+# 588 d and materially changes the CD top-up coverage below — intended, site-driven.
+site_retention <- unique(site_obj$interventions$mean_retention)
+stopifnot(length(site_retention) == 1L)
+retention_time <- if (!is.null(retention_override)) retention_override else site_retention
+message(sprintf("Net retention = %.1f days (%s)", retention_time,
+                if (is.null(retention_override)) "site mean_retention" else "manual override"))
 
 # ---------------------------------------------------------------------
 # 1. CD coverage math (identical to atn_local_test_cd_v1.R)
@@ -95,7 +107,7 @@ form_overrides <- list(use_eip_hill = TRUE, use_bompard = TRUE)
 #    baseline_year = min(year), step_t = itn_dist_day + (year - baseline_year)*365
 #    (confirmed from site:::add_time and site:::add_itns source)
 # ---------------------------------------------------------------------
-site_obj   <- readRDS(SITE_FILE)
+# site_obj already loaded above (for site-sourced net retention).
 
 # Canonical region list from the sites table (not interventions, to be safe).
 regions    <- site_obj$sites$name_1                 # 9 admin-1 regions
@@ -132,26 +144,41 @@ build_past_schedule <- function(idf) {
 }
 
 # FUTURE: monthly CD grid + 3-yearly campaigns, arm-specific net type.
-build_future_schedule <- function(arm, res) {
+# Net efficacy (dn0/rn/gamman) is projected per distribution year using the site
+# file's year-by-year pyrethroid resistance (site_obj$vectors$pyrethroid_resistance,
+# 2000-2050), taking the median posterior draw conditional on that year's resistance.
+build_future_schedule <- function(arm, region) {
   if (arm == "none") return(NULL)   # no future nets for the 'none' arm
-
-  cfp  <- med_net(cfp_pars,  res)
-  only <- med_net(only_pars, res)
 
   grid    <- unique(round(seq(future_start_day, n_steps, by = cd_interval)))
   is_camp <- vapply(grid, function(t) any(abs(t - future_campaign_days) < 1L), logical(1))
   cov     <- ifelse(is_camp, campaign_cov, cd_cov)
+  n       <- length(grid)
 
-  if (arm == "cfp") {
-    dn0 <- cfp$dn0;  rn <- cfp$rn0;  rnm <- 0.24;        gam <- cfp$gamman
+  # Projected resistance at each distribution's calendar year, for this region.
+  rtab      <- site_obj$vectors$pyrethroid_resistance
+  rtab      <- rtab[rtab$name_1 == region, ]
+  grid_year <- start_year + (grid %/% 365L)
+  res_grid  <- rtab$pyrethroid_resistance[match(grid_year, rtab$year)]
+
+  if (arm == "cfp") {                     # pyrethroid + CFP net
+    pars <- lapply(res_grid, function(r) med_net(cfp_pars, r))
+    dn0  <- vapply(pars, `[[`, numeric(1), "dn0")
+    rn   <- vapply(pars, `[[`, numeric(1), "rn0")
+    rnm  <- rep(0.24, n)
+    gam  <- vapply(pars, `[[`, numeric(1), "gamman")
   } else if (arm == "atn") {              # antimalarial net, no insecticide
-    dn0 <- 0;        rn <- 0.24;     rnm <- 0.24 - 1e-9;  gam <- atn_halflife
+    dn0 <- rep(0, n); rn <- rep(0.24, n); rnm <- rep(0.24 - 1e-9, n)
+    gam <- rep(atn_halflife, n)
   } else if (arm == "pyr_atn") {          # pyrethroid + antimalarial
-    dn0 <- only$dn0; rn <- only$rn0; rnm <- 0.24;         gam <- only$gamman
+    pars <- lapply(res_grid, function(r) med_net(only_pars, r))
+    dn0  <- vapply(pars, `[[`, numeric(1), "dn0")
+    rn   <- vapply(pars, `[[`, numeric(1), "rn0")
+    rnm  <- rep(0.24, n)
+    gam  <- vapply(pars, `[[`, numeric(1), "gamman")
   }
-  n <- length(grid)
   list(timesteps = grid, coverages = cov,
-       dn0 = rep(dn0, n), rn = rep(rn, n), rnm = rep(rnm, n), gam = rep(gam, n))
+       dn0 = dn0, rn = rn, rnm = rnm, gam = gam)
 }
 
 # ---------------------------------------------------------------------
@@ -163,10 +190,6 @@ build_params <- function(region, arm) {
   # subset_site() is the correct extractor (site package exports subset_site, not single_site).
   site_row <- site_obj$sites[site_obj$sites$name_1 == region, , drop = FALSE]
   ms       <- site::subset_site(site_obj, site_row)
-  idf      <- ms$interventions
-
-  # Median pyrethroid resistance across historical years for this region.
-  res <- stats::median(idf$pyrethroid_resistance, na.rm = TRUE)
 
   # 6a. Extend future: carry last year's CM+SMC forward; zero IRS/vaccines/PMC/LSM/nets.
   ms_ext <- expand_interventions(ms, expand_year = n_future_years)
@@ -181,7 +204,7 @@ build_params <- function(region, arm) {
   # 6b. ATN construction-time overrides (antimalarial arms only).
   #     These pass through site_parameters -> get_parameters(overrides=...).
   #     (Confirmed from site:::site_parameters source.)
-  fsch <- build_future_schedule(arm, res)
+  fsch <- build_future_schedule(arm, region)
   atn_overrides <- list()
   if (arm %in% c("atn", "pyr_atn")) {
     atn_overrides <- c(list(
@@ -192,8 +215,9 @@ build_params <- function(region, arm) {
       t0_atn    = fsch$timesteps,
       n_atn     = length(fsch$timesteps)
     ), atn_kern)
-    if (arm == "pyr_atn")
-      atn_overrides$dn0_atn <- med_net(only_pars, res)$dn0
+    # Pyrethroid mortality for pyr_atn flows through the ITN-side dn0/rn in the
+    # net schedule (resistance-projected); the ATN kernel's dn0_atn represents
+    # only the antimalarial's extra mortality (default 0).
   }
 
   # 6c. Build calibrated parameters from the extended site unit.
