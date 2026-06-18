@@ -303,5 +303,5 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   six `compute_atn_kernels()` invariants covering ATN-off baseline collapse, pre-distribution zero,
   `p_atn` gating, active proportionality, minimum dimensions (`deltaq=1,spor_len=1` NaN guard), and
   per-species `phi_bednets[[s]]` indexing (Concern 3). Run after `devtools::load_all()` via
-  `devtools::test_file("tests/testthat/test-atn-mosquito.R")` or select-all-and-run in editor.
+  `devtools::test_active_file()` (file must be the active RStudio tab) or select-all-and-run in editor.
   Resistance-sensitivity verification stays in `dev/mali_single_region_test.R` (needs full sim).
