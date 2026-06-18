@@ -13,13 +13,14 @@ Solver::Solver(
     const integration_function_t& eqs,
     double r_tol,
     double a_tol,
-    size_t max_steps
+    size_t max_steps,
+    const std::string& model_name
     ) :
     state(init),
     eqs(eqs),
     r_tolerance(r_tol),
     a_tolerance(a_tol),
-    observer(Observer(max_steps, eqs))
+    observer(Observer(max_steps, eqs, model_name))
 {
     rk = boost::numeric::odeint::make_dense_output(
         a_tolerance,

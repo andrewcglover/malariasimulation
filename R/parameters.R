@@ -484,7 +484,8 @@ get_parameters <- function(overrides = list(), parasite = "falciparum") {
       t0_atn   = 0,      # day of each distribution event (chronological)
       Q0_atn   = 0,      # initial coverage of each event
       # Coverage and potency decay
-      lambda_atn = 0,    # ATN retention decay rate
+      lambda_atn = NULL, # ATN coverage retention decay rate; NULL = auto-derive as
+                         # 1/bednet_retention once set_bednets is called
       gamma_atn  = 0,    # drug-effect potency decay rate
       p_atn      = 0,    # prob. antimalarial present on bite attempt (0 = ATN off)
       # Drug-effect baselines

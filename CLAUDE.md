@@ -267,6 +267,15 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   `parameters$phi_bednets` vector. Even `0 * phi_bednets` yields a length-N vector, causing
   `Expecting a single value: [extent=N]` from Rcpp when passed as the scalar `delta_atn` argument.
   All call sites must pass the species index (production: `s_i`; tests: `1L`).
+- **`lambda_atn` is now NULL by default (auto-derive sentinel, changed 2026-06-18).** `set_bednets`
+  automatically sets `lambda_atn = 1/bednet_retention` from whatever retention value it received
+  (manual or site-sourced) — so ATN drug coverage wanes at the same rate as net loss on the
+  pyrethroid side. Rationale: `set_bednets` net loss is stochastic Exponential(mean=retention)
+  via `log_uniform` (`R/utils.R:28`); the ATN decay `exp(-lambda_atn*t)` is its deterministic
+  mean-field analogue. An explicit `lambda_atn` value (e.g. `0`) in `get_parameters(overrides=...)`
+  is respected and NOT overwritten. For logistic retention, a warning is issued and
+  `lambda_atn = 1/bednet_logistic_half_life` is used. `compute_atn_kernels` falls back to
+  `lambda_atn=0` (no waning) if no `set_bednets` call has been made. Tests in §12e.
 
 ## 11. Mali projection pipeline (dev/mali_projection_run.R, confirmed 2026-06-17)
 
@@ -299,9 +308,17 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   through the ITN-side `dn0`/`rn` in the net schedule (now resistance-projected); the ATN kernel's
   `dn0_atn` represents only the antimalarial's extra mortality (default 0) — avoids double-counting.
   See §3 "Repellency / pyrethroid-resistance coupling" for why repellency lives in `a`, not `delta_atn`.
-- **Kernel invariant tests added (2026-06-18):** `tests/testthat/test-atn-mosquito.R` §12d —
-  six `compute_atn_kernels()` invariants covering ATN-off baseline collapse, pre-distribution zero,
-  `p_atn` gating, active proportionality, minimum dimensions (`deltaq=1,spor_len=1` NaN guard), and
-  per-species `phi_bednets[[s]]` indexing (Concern 3). Run after `devtools::load_all()` via
+- **Kernel invariant tests (2026-06-18):** `tests/testthat/test-atn-mosquito.R` §12d —
+  six `compute_atn_kernels()` invariants. §12e (added 2026-06-18) — four `lambda_atn` auto-derive
+  tests: auto-derive from `set_bednets(retention)`, explicit override respected, NULL fallback in
+  kernel, logistic-retention warning + half-life mapping. Run after `devtools::load_all()` via
   `devtools::test_active_file()` (file must be the active RStudio tab) or select-all-and-run in editor.
   Resistance-sensitivity verification stays in `dev/mali_single_region_test.R` (needs full sim).
+- **ODE solver error label (fixed 2026-06-18).** The "too much work" error in `src/solver.h` was
+  previously hardcoded to "aquatic life stage model" regardless of which solver failed. The shared
+  `Observer` now accepts a `model_name` string (passed as `"adult mosquito"` or `"aquatic mosquito
+  larval"` from `create_adult_solver`/`create_aquatic_solver`). The error also now prints
+  `n_states` to disambiguate (aquatic = 3; adult = 3 + (deltaq+1)*(2+spor_len)). Budget is
+  per-day (observer.reset() each step). The adult solver carries the much larger state in this
+  fork (27 non-ATN, 135 ATN-on states vs upstream 3) — so "too much work" on an ATN run is
+  most likely adult, not aquatic.

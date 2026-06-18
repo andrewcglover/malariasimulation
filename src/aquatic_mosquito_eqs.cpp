@@ -154,7 +154,8 @@ Rcpp::XPtr<Solver> create_aquatic_solver(
     size_t max_steps
 ) {
   return Rcpp::XPtr<Solver>(
-    new Solver(init, create_eqs(*model), r_tol, a_tol, max_steps),
+    new Solver(init, create_eqs(*model), r_tol, a_tol, max_steps,
+               "aquatic mosquito larval"),
     true
   );
 }

@@ -278,7 +278,8 @@ Rcpp::XPtr<Solver> create_adult_solver(
             create_eqs(*model),
             r_tol,
             a_tol,
-            max_steps
+            max_steps,
+            "adult mosquito"
         ),
         true
     );

@@ -284,12 +284,15 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
   rho      <- spor_len / parameters$dem
 
   # --- coverage: per-event with random proportional replacement ---
+  # lambda_atn is NULL when no set_bednets call has been made (no nets at all);
+  # fall back to 0 (no waning) in that case.
+  lambda_atn <- if (is.null(parameters$lambda_atn)) 0 else parameters$lambda_atn
   repl_factor <- vapply(seq_len(n), function(i) {
     later <- which(t0 > t0[i] & t0 <= timestep)
     prod(1 - Q0[later])
   }, numeric(1))
   Q_each <- ifelse(timestep < t0, 0,
-              Q0 * exp(-parameters$lambda_atn * (timestep - t0)) * repl_factor)
+              Q0 * exp(-lambda_atn * (timestep - t0)) * repl_factor)
   Q_t <- sum(Q_each)
 
   # --- per-event drug-effect decay ---

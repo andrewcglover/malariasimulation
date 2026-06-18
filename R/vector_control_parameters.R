@@ -99,6 +99,29 @@ set_bednets <- function(
   parameters$bednet_rn <- rn
   parameters$bednet_rnm <- rnm
   parameters$bednet_gamman <- gamman
+
+  # Auto-derive lambda_atn (ATN coverage retention decay) from bednet retention,
+  # so ATN drug coverage wanes at the same rate as net loss on the pyrethroid side.
+  # Only applied when lambda_atn is NULL (i.e. not explicitly set by the user).
+  # Net loss in set_bednets is stochastic Exponential(mean = retention); the ATN
+  # coverage decay exp(-lambda_atn * t) is the deterministic mean-field analogue,
+  # differing only in stochasticity.
+  # For logistic retention: we approximate using the half-life as the exponential
+  # mean (maps median of logistic to mean of exponential, minimising MSE between
+  # the two loss functions given the greater right-skew of the exponential).
+  if (is.null(parameters$lambda_atn)) {
+    if (!is.null(parameters$bednet_retention)) {
+      parameters$lambda_atn <- 1 / parameters$bednet_retention
+    } else {
+      warning(
+        "set_bednets uses logistic net retention; ATN coverage loss is approximated as ",
+        "exponential decay with rate 1/bednet_logistic_half_life. ",
+        "Set lambda_atn explicitly to override."
+      )
+      parameters$lambda_atn <- 1 / parameters$bednet_logistic_half_life
+    }
+  }
+
   parameters
 }
 

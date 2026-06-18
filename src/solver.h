@@ -23,14 +23,18 @@ class Observer {
     size_t steps;
     size_t max_steps;
     integration_function_t eqs;
+    std::string model_name;
 public:
-    Observer(size_t max_steps, const integration_function_t& eqs) :
-        steps(0u), max_steps(max_steps), eqs(eqs) { }
+    Observer(size_t max_steps, const integration_function_t& eqs,
+             const std::string& model_name) :
+        steps(0u), max_steps(max_steps), eqs(eqs), model_name(model_name) { }
     void operator()( const state_t &x , double t )
     {
         if (++steps > max_steps) {
             Rcpp::Rcout << "steps: " << steps;
             Rcpp::Rcout << ", t: " << t;
+            Rcpp::Rcout << ", solver: " << model_name;
+            Rcpp::Rcout << ", n_states: " << x.size();
             for (auto i = 0u; i < x.size(); ++i) {
                 Rcpp::Rcout << ", x[" << i << "]:" << x[i];
             }
@@ -40,10 +44,11 @@ public:
                 Rcpp::Rcout << ", dx[" << i << "]:" << dx[i];
             }
             Rcpp::Rcout << std::endl;
-            Rcpp::stop("Solver error: too much work! \
-            The ODE solver is used in mosquito aquatic life stage model. \
-            Check for extreme changes in carrying capacity possibly as a result \
-            of seasonality or set_carrying_capacity() parameterisation");
+            Rcpp::stop(
+                "Solver error: too much work in the " + model_name + " ODE solver. "
+                "Check for extreme changes in carrying capacity possibly as a result "
+                "of seasonality or set_carrying_capacity() parameterisation."
+            );
         }
     }
     void reset() {
@@ -66,7 +71,8 @@ struct Solver {
         const integration_function_t& eqs,
         const double r_tol,
         const double a_tol,
-        const size_t max_steps
+        const size_t max_steps,
+        const std::string& model_name = "unknown"
     );
     //solver fields
     boost::numeric::odeint::dense_output_runge_kutta<

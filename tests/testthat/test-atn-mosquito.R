@@ -257,3 +257,73 @@ test_that('run_simulation completes with ATN parameters set', {
   expect_equal(nrow(sim), 200L)
   expect_true('EIR_gamb' %in% names(sim))
 })
+
+# ── 12e: lambda_atn auto-derive from set_bednets retention ───────────────────
+
+test_that('set_bednets auto-derives lambda_atn = 1/retention when lambda_atn is NULL', {
+  parameters <- get_parameters()
+  expect_null(parameters$lambda_atn)   # default is NULL (auto-derive sentinel)
+  n_sp <- length(parameters$species)
+  parameters <- set_bednets(
+    parameters,
+    timesteps = 100L,
+    coverages = 0.5,
+    retention = 2000,
+    dn0 = matrix(0,   nrow = 1, ncol = n_sp),
+    rn  = matrix(0.24, nrow = 1, ncol = n_sp),
+    rnm = matrix(0.24 - 1e-9, nrow = 1, ncol = n_sp),
+    gamman = 365
+  )
+  expect_equal(parameters$lambda_atn, 1 / 2000, tolerance = 1e-12)
+})
+
+test_that('set_bednets respects an explicitly set lambda_atn (does not override)', {
+  parameters <- get_parameters(list(lambda_atn = 0))   # explicit 0
+  n_sp <- length(parameters$species)
+  parameters <- set_bednets(
+    parameters,
+    timesteps = 100L,
+    coverages = 0.5,
+    retention = 2000,
+    dn0 = matrix(0,   nrow = 1, ncol = n_sp),
+    rn  = matrix(0.24, nrow = 1, ncol = n_sp),
+    rnm = matrix(0.24 - 1e-9, nrow = 1, ncol = n_sp),
+    gamman = 365
+  )
+  expect_equal(parameters$lambda_atn, 0)   # must NOT be overwritten
+})
+
+test_that('compute_atn_kernels falls back to lambda_atn=0 when no set_bednets called', {
+  # NULL lambda_atn (no set_bednets) must not error and must give no coverage decay
+  parameters <- get_parameters(list(
+    p_atn  = 0.9,
+    Q0_atn = 0.8,
+    t0_atn = 1L
+    # lambda_atn left as NULL
+  ))
+  parameters <- set_equilibrium(parameters, 50.)
+  foim <- parameters$init_foim
+  # If lambda_atn=0 fallback is working, coverage at t=365 equals Q0_atn (no decay)
+  k <- compute_atn_kernels(365L, parameters, foim, 1L)
+  expect_equal(k$delta_atn, 0.9 * parameters$phi_bednets[[1]] * 0.8, tolerance = 1e-10)
+})
+
+test_that('set_bednets with logistic retention warns and sets lambda_atn = 1/half_life', {
+  parameters <- get_parameters()
+  n_sp <- length(parameters$species)
+  expect_warning(
+    parameters <- set_bednets(
+      parameters,
+      timesteps = 100L,
+      coverages = 0.5,
+      logistic_half_life = 1500,
+      logistic_k = 20,
+      dn0 = matrix(0,   nrow = 1, ncol = n_sp),
+      rn  = matrix(0.24, nrow = 1, ncol = n_sp),
+      rnm = matrix(0.24 - 1e-9, nrow = 1, ncol = n_sp),
+      gamman = 365
+    ),
+    regexp = "logistic net retention"
+  )
+  expect_equal(parameters$lambda_atn, 1 / 1500, tolerance = 1e-12)
+})
