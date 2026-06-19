@@ -25,7 +25,7 @@ source("dev/InterventionExpansion.R")
 SITE_FILE <- "dev/site_files/without_split/MLI.rds"
 OUT_FILE  <- "dev/outputs/mali_projection_results.rds"
 FORK_PATH <- normalizePath(".")          # for pkgload::load_all() in workers
-N_CORES   <- min(8L, max(1L, parallel::detectCores() - 1L))
+N_CORES   <- min(16L, max(1L, parallel::detectCores() - 1L))
 
 human_pop      <- 10000L   # per-region population (smooth single-run incidence)
 n_future_years <- 6L
@@ -237,7 +237,7 @@ build_params <- function(region, arm) {
     seasonality   = ms_ext$seasonality$seasonality_parameters,
     eir           = ms$eir$eir,
     overrides     = c(render_overrides, form_overrides, atn_overrides,
-                      list(ode_max_steps = 1e7))
+                      list(ode_max_steps = 1e8))
   )
 
   # 6d. Combined net schedule: past (from site df) + future (CD, arm-specific).
