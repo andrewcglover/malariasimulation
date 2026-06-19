@@ -34,38 +34,31 @@ df_win <- df |>
   filter(year_rel >= 0, year_rel <= meta$n_future_years) |>
   mutate(arm_f = factor(arm_labels[arm], levels = arm_labels))
 
-# Data-driven geofacet grid from the shape centroids.
-# grid_auto() needs a df with code, name, lon, lat columns.
-cent     <- suppressWarnings(sf::st_centroid(shape))
-xy       <- as.data.frame(sf::st_coordinates(cent))
-auto_grid <- data.frame(
-  name = shape[[SHAPE_KEY]],
-  code = shape[[SHAPE_KEY]],
-  lon  = xy$X,
-  lat  = xy$Y
-)
-
-# Try grid_auto; fall back to the hand-tuned grid if unavailable or layout looks wrong.
-mali_grid <- tryCatch(
-  geofacet::grid_auto(auto_grid, codes = "code", names = "name",
-                      seed = 42),
-  error = function(e) NULL
-)
-
-if (is.null(mali_grid)) {
-  # Hand-tuned fallback — north at top. Region names MUST match unique(df$region)
-  # exactly (i.e. the site file spellings: Timbuktu, Ségou, etc.).
-  # Bamako excluded: ODE solver failure in the parallel run (no data).
-  # Kidal shifted to col=4 (was col=5) to avoid a large whitespace gap.
-  mali_grid <- data.frame(
-    row  = c(1,    1,    1,          2,     2,         3,         3,       4),
-    col  = c(2,    3,    4,          3,     4,         1,         2,       3),
-    code = c("Timbuktu","Gao","Kidal","Mopti","Ségou","Kayes","Koulikoro","Sikasso"),
-    name = c("Timbuktu","Gao","Kidal","Mopti","Ségou","Kayes","Koulikoro","Sikasso")
+# Build geofacet grid from shape centroids — no hardcoded region-name literals,
+# so Windows encoding differences between source file and data/RDS cannot cause
+# name mismatches (the root cause of earlier Ségou / region-drop bugs).
+# Names/codes are taken directly from shape[[SHAPE_KEY]], the same object used
+# everywhere else in the script.
+# Breaks verified against actual MLI admin-1 centroids.
+build_geo_grid <- function(shape, key, present_regions,
+                           lon_breaks = c(-9, -7, -6, -4, 0),
+                           lat_breaks = c(18, 16, 14, 13.7, 13)) {
+  cent <- suppressWarnings(sf::st_centroid(shape))
+  xy   <- as.data.frame(sf::st_coordinates(cent))
+  g <- data.frame(
+    code = shape[[key]],
+    name = shape[[key]],
+    lon  = xy$X,
+    lat  = xy$Y,
+    stringsAsFactors = FALSE
   )
+  g$col <- findInterval(g$lon,  lon_breaks)  + 1L   # west -> east
+  g$row <- findInterval(-g$lat, -lat_breaks) + 1L   # north (row 1) -> south
+  g <- g[g$code %in% present_regions, c("row", "col", "code", "name")]
+  g
 }
-# Restrict grid to regions with data (avoids empty labelled cells for failed runs).
-mali_grid <- mali_grid[mali_grid$code %in% unique(df_win$region), ]
+
+mali_grid <- build_geo_grid(shape, SHAPE_KEY, unique(df_win$region))
 
 # df_plot: 3 years history + future window, with calendar year and rolling means.
 # Kept separate from df_win so the cases-averted sum (section 2) is unaffected.
@@ -96,7 +89,7 @@ p_clin_series <- ggplot(df_plot, aes(cal_year, clin_rate, colour = arm_f)) +
   geom_line(linewidth = 0.4, alpha = 0.2) +
   geom_line(aes(y = clin_rate_roll), linewidth = 0.8, na.rm = TRUE) +
   scale_colour_manual(values = arm_cols) +
-  facet_wrap(~ region, ncol = 3) +
+  geofacet::facet_geo(~ region, grid = mali_grid) +
   theme_minimal(base_size = 11) +
   labs(x = "Year",
        y = "Clinical incidence (per 1,000 / day, all ages)",
@@ -110,7 +103,7 @@ p_prev <- ggplot(df_plot, aes(cal_year, pfpr2to10 * 100, colour = arm_f)) +
   geom_line(linewidth = 0.4, alpha = 0.2) +
   geom_line(aes(y = pfpr_roll), linewidth = 0.8, na.rm = TRUE) +
   scale_colour_manual(values = arm_cols) +
-  facet_wrap(~ region, ncol = 3) +
+  geofacet::facet_geo(~ region, grid = mali_grid) +
   theme_minimal(base_size = 11) +
   labs(x = "Year",
        y = expression(italic(Pf) * PR[2 - 10] * " (%)"),
