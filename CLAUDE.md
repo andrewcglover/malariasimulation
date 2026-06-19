@@ -58,19 +58,38 @@ Indices:
 the antimalarial on an attempted bite. A mosquito biting an ATN host (rate `av*delta_atn`) moves
 into exposure compartment 2. `Q_atn_t` = total ATN coverage across distribution events.
 
-**Repellency / pyrethroid-resistance coupling — DESIGN DECISION (confirmed 2026-06-18).**
-`delta_atn` deliberately carries **no** repellency/`rn` term, and this is correct, not a gap. The
-exposure *rate* into the model is `av_da = a * delta_atn`, and `a` (malariasimulation's human blood
-meal rate, `R/biting_process.R:118`) is already the full feeding-cycle-adjusted rate: it is built
-from `W`/`Z` (`average_p_successful`/`average_p_repelled`), which embed the per-individual,
-resistance-decayed net survival `sn` and repellency `rn` from `prob_survives_bednets` /
-`prob_repelled_bednets`. So pyrethroid repellency/mortality — and its projected resistance trend —
-flow into ATN exposure **through `a`**. Adding an `(1 - rn)` factor to `delta_atn` would
-**double-count** repellency. The reference's `av*delta_atn` (v3 lines 539–540) is exactly this
-structure. Pyr-ATN benefits emerge automatically: resistance ↑ ⇒ `rn`/`dn` ↓ ⇒ less repelling ⇒
-`a` ↑ ⇒ more antimalarial exposure. The full per-net-category `av_mosq[i] = av*w[i]/wh` (v3
-commented 8-category block, lines ~925–994) is the only further refinement and is a large
-structural change to the mosquito model — not pursued.
+**Repellency / pyrethroid-resistance coupling — DESIGN DECISION (revised 2026-06-19).**
+The exposure rate is `av_da = a * delta_atn * contact_factor` (see `R/biting_process.R`,
+`compute_atn_kernels`). The three terms are:
+
+- **`a`** (human blood-meal rate, `R/biting_process.R:118`) carries the full feeding-cycle
+  adjustment from `W`/`Z`, embedding per-individual `sn`/`rn`/`dn` via `prob_survives_bednets` /
+  `prob_repelled_bednets`. Pyrethroid resistance ↑ ⇒ `rn`/`dn` ↓ ⇒ `a` ↑ ⇒ more ATN exposure.
+- **`delta_atn`** (the *fraction* `p_atn * phi_bednets * Q_t`) carries no repellency term — it is
+  the net-user coverage exposure probability, not a rate. The FOI-splitting terms (`Lambda_i`,
+  `Lambda0_t`) remain tied to `a` (feeding) because *infection requires a blood meal*.
+- **`contact_factor`** (new, 2026-06-19) corrects the exposure *rate* for mosquitoes that
+  **physically touch the net but do not feed**: barrier-repelled mosquitoes (prob `rnm`, the
+  untreated-net floor) touch the net → pick up the drug, so they belong in the exposed pool.
+  Only **chemical excito-repellency** (`rn − rnm`, the insecticide-driven part) keeps a mosquito
+  off the net. Formula: `contact_factor = (sn + rnm) / sn = (1 − rn_chem − dn) / (1 − rn − dn)`.
+  - Non-insecticidal ATN (`rn0 = rnm`, `dn0 = 0`): `contact_factor = 1/(1 − rnm)` (constant).
+  - Pyr-ATN fresh net: `(1 − rn0 − dn0 + rnm)/(1 − rn0 − dn0)`; decays to `1/(1 − rnm)` as
+    insecticide wanes (rn → rnm, dn → 0). Derived dynamically per event from the bednet schedule
+    (`parameters$bednet_rn`/`rnm`/`dn0`/`gamman`, matched by `t0_atn`).
+  - ATN-off (`delta_atn = 0`): `av_da = 0` regardless — **baseline untouched**.
+  - No `set_bednets` call: falls back to `contact_factor = 1`.
+  - **Only `av_da` is affected.** `foim` (→ `Sv[0]`), EIR (`calculate_eir`), `mu`/`f`, the
+    aquatic model, and total mosquito density are all unchanged. `Sv→Ev` infection rates stay
+    feed-based; the extra contacts from `contact_factor` flow into `Sv_exposed` only.
+
+**Out-of-scope note:** the leMenach/Griffin death-rate formula `p1 = p1_0·W/(1 − Z·p1_0)` means
+a repellent-only net (ATN, `dn0=0`, `rn=0.24`) lowers `mu` relative to no net, so total mosquito
+density is slightly *higher* under ATN than no-nets. This is pre-existing biting-model behaviour,
+not an ATN-port artifact; revisiting the full leMenach/Griffin death-rate logic is deferred.
+
+The full per-net-category `av_mosq[i] = av*w[i]/wh` (v3 commented 8-category block,
+lines ~925–994) is a larger structural change — not pursued.
 
 **Coverage is ATN-only by design.** `Q_atn_t` is built solely from the ATN distribution events
 (`Q0_atn`/`t0_atn`) in `compute_atn_kernels`, so it correctly **excludes** historical pyrethroid
@@ -276,6 +295,13 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   is respected and NOT overwritten. For logistic retention, a warning is issued and
   `lambda_atn = 1/bednet_logistic_half_life` is used. `compute_atn_kernels` falls back to
   `lambda_atn=0` (no waning) if no `set_bednets` call has been made. Tests in §12e.
+- **`contact_factor` sourcing (added 2026-06-19).** `compute_atn_kernels` reads the net's
+  `rn`/`rnm`/`dn0`/`gamman` for each ATN event by `match(t0_atn, parameters$bednet_timesteps)`.
+  In the Mali pipeline, `t0_atn = fsch$timesteps` and the bednet schedule is built from the same
+  vector (`mali_projection_run.R:248-258`), so every ATN event matches exactly one bednet row.
+  No new parameters needed — the existing bednet schedule matrices are reused. If `match` returns
+  NA (edge case: t0_atn not in bednet schedule), `contact_factor` falls back to 1 for that event.
+  Tests in §12f.
 
 ## 11. Mali projection pipeline (dev/mali_projection_run.R, confirmed 2026-06-17)
 

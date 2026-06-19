@@ -206,7 +206,7 @@ simulate_bites <- function(
         models[[s_i]]$.model,
         mu,
         foim,
-        a * kernels$delta_atn,   # av_da = human biting rate * exposure probability
+        a * kernels$delta_atn * kernels$contact_factor,  # av_da = contact rate * exposure probability
         kernels$delta_atn,
         kernels$dn_atn,
         kernels$Lambda0_t,
@@ -312,6 +312,36 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
   rho0_t    <- if (Q_t > 0) sum(Q_each * rho0_each)    / Q_t else rho
   dn_atn    <- if (Q_t > 0) sum(Q_each * dn_each)      / Q_t else 0
 
+  # --- contact_factor: barrier-repelled mosquitoes (prob rnm) physically touch the
+  # net and pick up the drug; only chemical excito-repellency (rn - rnm) prevents
+  # contact entirely. So the ATN-exposure rate scales by
+  #   contact_factor = (sn + rnm) / sn = (1 - rn_chem - dn) / (1 - rn - dn)
+  # where sn = 1 - rn - dn (feed-and-survive probability).
+  # Non-insecticidal ATN (rn0 = rnm, dn0 = 0): contact_factor = 1 / (1 - rnm).
+  # Pyr-ATN: starts at (1 - rn0 - dn0 + rnm)/(1 - rn0 - dn0) for a fresh net,
+  #          decays toward 1/(1 - rnm) as insecticide wanes.
+  # Source rn/rnm/dn0/gamman by matching each t0_atn to its bednet schedule row.
+  # Falls back to 1 (no adjustment) when no bednet schedule or no row match.
+  contact_factor <- if (is.null(parameters$bednet_timesteps)) {
+    1
+  } else {
+    bed_idx  <- match(t0, parameters$bednet_timesteps)
+    idx_safe <- ifelse(!is.na(bed_idx), bed_idx, 1L)  # safe subscript; unmatched overridden below
+
+    rn0_e  <- parameters$bednet_rn [idx_safe, species]
+    rnm_e  <- parameters$bednet_rnm[idx_safe, species]
+    dn0_e  <- parameters$bednet_dn0[idx_safe, species]
+    gam_e  <- parameters$bednet_gamman[idx_safe]
+
+    decay_e <- exp(-age / gam_e)                            # bednet_decay() inline
+    rn_e    <- (rn0_e - rnm_e) * decay_e + rnm_e           # rn(dt): prob_repelled_bednets
+    dn_e    <- dn0_e * decay_e                              # dn(dt): prob_survives_bednets
+    sn_e    <- pmax(1 - rn_e - dn_e, 1e-6)                 # floor avoids divide-by-zero
+    cf_each <- ifelse(!is.na(bed_idx), (sn_e + rnm_e) / sn_e, 1)
+
+    if (Q_t > 0) sum(Q_each * cf_each) / Q_t else 1
+  }
+
   delta_atn <- parameters$p_atn * parameters$phi_bednets[[species]] * Q_t
 
   # --- Bompard TRA -> field TBA transform ---
@@ -354,12 +384,13 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
   B_post <- if (parameters$use_bompard) bompard(b_lab_post) else b_lab_post
 
   list(
-    delta_atn = delta_atn,
-    dn_atn    = dn_atn,
-    Lambda0_t = Lambda0_t,
-    Lambda_i  = Lambda_i,
-    rho_i     = rho_i,
-    B_post    = B_post
+    delta_atn      = delta_atn,
+    contact_factor = contact_factor,
+    dn_atn         = dn_atn,
+    Lambda0_t      = Lambda0_t,
+    Lambda_i       = Lambda_i,
+    rho_i          = rho_i,
+    B_post         = B_post
   )
 }
 

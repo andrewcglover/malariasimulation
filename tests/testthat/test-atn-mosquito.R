@@ -327,3 +327,83 @@ test_that('set_bednets with logistic retention warns and sets lambda_atn = 1/hal
   )
   expect_equal(parameters$lambda_atn, 1 / 1500, tolerance = 1e-12)
 })
+
+# ── 12f: contact_factor — barrier-repelled mosquitoes get dosed ───────────────
+#
+# contact_factor = (sn + rnm) / sn scales av_da to include mosquitoes that
+# physically touch the net (barrier-repelled, prob rnm) but are not fed-and-survived.
+# Only chemical excito-repellency (rn - rnm) prevents net contact entirely.
+# All tests call compute_atn_kernels() directly with set_bednets set up so that
+# t0_atn matches a bednet schedule row (as in the Mali pipeline).
+
+test_that('compute_atn_kernels: contact_factor = 1 when no set_bednets called', {
+  # NULL parameters$bednet_timesteps -> fallback to 1 (no adjustment).
+  parameters <- get_parameters(list(
+    p_atn = 0.9, Q0_atn = 0.8, t0_atn = 1L, lambda_atn = 0
+  ))
+  parameters <- set_equilibrium(parameters, 50.)
+  k <- compute_atn_kernels(100L, parameters, parameters$init_foim, 1L)
+  expect_equal(k$contact_factor, 1)
+})
+
+test_that('compute_atn_kernels: contact_factor = 1/(1-rnm) for non-insecticidal ATN', {
+  # rn0 = rnm, dn0 = 0: sn = 1-rnm (constant); (sn+rnm)/sn = 1/(1-rnm).
+  rnm_val <- 0.24 - 1e-9
+  parameters <- get_parameters(list(
+    p_atn = 0.9, Q0_atn = 0.8, t0_atn = 100L, lambda_atn = 0
+  ))
+  n_sp <- length(parameters$species)
+  parameters <- set_bednets(
+    parameters,
+    timesteps = 100L, coverages = 0.8, retention = 5000,
+    dn0    = matrix(0,       nrow = 1, ncol = n_sp),
+    rn     = matrix(0.24,    nrow = 1, ncol = n_sp),
+    rnm    = matrix(rnm_val, nrow = 1, ncol = n_sp),
+    gamman = 365 * 5
+  )
+  parameters <- set_equilibrium(parameters, 50.)
+  k <- compute_atn_kernels(200L, parameters, parameters$init_foim, 1L)
+  expect_equal(k$contact_factor, 1 / (1 - rnm_val), tolerance = 1e-9)
+})
+
+test_that('compute_atn_kernels: contact_factor for fresh Pyr-ATN matches (sn+rnm)/sn at dt=0', {
+  # At dt=0, rn(0)=rn0, dn(0)=dn0, sn(0)=1-rn0-dn0.
+  rn0_val <- 0.5; rnm_val <- 0.24; dn0_val <- 0.3
+  parameters <- get_parameters(list(
+    p_atn = 0.9, Q0_atn = 0.8, t0_atn = 100L, lambda_atn = 0
+  ))
+  n_sp <- length(parameters$species)
+  parameters <- set_bednets(
+    parameters,
+    timesteps = 100L, coverages = 0.8, retention = 5000,
+    dn0    = matrix(dn0_val, nrow = 1, ncol = n_sp),
+    rn     = matrix(rn0_val, nrow = 1, ncol = n_sp),
+    rnm    = matrix(rnm_val, nrow = 1, ncol = n_sp),
+    gamman = 365 * 5   # slow decay -> dt=0 approximation exact at timestep=t0
+  )
+  parameters <- set_equilibrium(parameters, 50.)
+  k <- compute_atn_kernels(100L, parameters, parameters$init_foim, 1L)
+  sn_expected <- 1 - rn0_val - dn0_val
+  cf_expected <- (sn_expected + rnm_val) / sn_expected
+  expect_equal(k$contact_factor, cf_expected, tolerance = 1e-9)
+})
+
+test_that('compute_atn_kernels: contact_factor decays toward 1/(1-rnm) as Pyr-ATN ages', {
+  # With small gamman, rn->rnm and dn->0 quickly, so contact_factor -> 1/(1-rnm).
+  rnm_val <- 0.24
+  parameters <- get_parameters(list(
+    p_atn = 0.9, Q0_atn = 0.8, t0_atn = 100L, lambda_atn = 0
+  ))
+  n_sp <- length(parameters$species)
+  parameters <- set_bednets(
+    parameters,
+    timesteps = 100L, coverages = 0.8, retention = 5000,
+    dn0    = matrix(0.3,     nrow = 1, ncol = n_sp),
+    rn     = matrix(0.5,     nrow = 1, ncol = n_sp),
+    rnm    = matrix(rnm_val, nrow = 1, ncol = n_sp),
+    gamman = 10   # fast decay: at dt = 500 >> gamman, rn~rnm, dn~0
+  )
+  parameters <- set_equilibrium(parameters, 50.)
+  k <- compute_atn_kernels(600L, parameters, parameters$init_foim, 1L)
+  expect_equal(k$contact_factor, 1 / (1 - rnm_val), tolerance = 1e-6)
+})
