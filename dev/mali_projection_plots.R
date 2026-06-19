@@ -34,31 +34,18 @@ df_win <- df |>
   filter(year_rel >= 0, year_rel <= meta$n_future_years) |>
   mutate(arm_f = factor(arm_labels[arm], levels = arm_labels))
 
-# Build geofacet grid from shape centroids — no hardcoded region-name literals,
-# so Windows encoding differences between source file and data/RDS cannot cause
-# name mismatches (the root cause of earlier Ségou / region-drop bugs).
-# Names/codes are taken directly from shape[[SHAPE_KEY]], the same object used
-# everywhere else in the script.
-# Breaks verified against actual MLI admin-1 centroids.
-build_geo_grid <- function(shape, key, present_regions,
-                           lon_breaks = c(-9, -7, -6, -4, 0),
-                           lat_breaks = c(18, 16, 14, 13.7, 13)) {
-  cent <- suppressWarnings(sf::st_centroid(shape))
-  xy   <- as.data.frame(sf::st_coordinates(cent))
-  g <- data.frame(
-    code = shape[[key]],
-    name = shape[[key]],
-    lon  = xy$X,
-    lat  = xy$Y,
-    stringsAsFactors = FALSE
-  )
-  g$col <- findInterval(g$lon,  lon_breaks)  + 1L   # west -> east
-  g$row <- findInterval(-g$lat, -lat_breaks) + 1L   # north (row 1) -> south
-  g <- g[g$code %in% present_regions, c("row", "col", "code", "name")]
-  g
-}
-
-mali_grid <- build_geo_grid(shape, SHAPE_KEY, unique(df_win$region))
+# Build geofacet grid via grid_auto() — uses geogrid's hexagonal-regular
+# layout algorithm so the resulting row/col positions are guaranteed
+# compatible with facet_geo's internal matching.  Takes names from the
+# shape object (encoding-safe), then filters to regions present in the data
+# (drops Bamako which failed the ODE solver).
+mali_grid_raw <- geofacet::grid_auto(shape, names = SHAPE_KEY, seed = 1)
+# grid_auto prefixes "name_" to the column name; rename to plain "name" / add "code"
+names(mali_grid_raw)[names(mali_grid_raw) == paste0("name_", SHAPE_KEY)] <- "name"
+mali_grid_raw$code <- mali_grid_raw$name
+present_regions <- unique(df_win$region)
+mali_grid <- mali_grid_raw[mali_grid_raw$code %in% present_regions,
+                            c("row", "col", "code", "name")]
 
 # df_plot: 3 years history + future window, with calendar year and rolling means.
 # Kept separate from df_win so the cases-averted sum (section 2) is unaffected.
