@@ -336,8 +336,10 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
     decay_e <- exp(-age / gam_e)                            # bednet_decay() inline
     rn_e    <- (rn0_e - rnm_e) * decay_e + rnm_e           # rn(dt): prob_repelled_bednets
     dn_e    <- dn0_e * decay_e                              # dn(dt): prob_survives_bednets
-    sn_e    <- pmax(1 - rn_e - dn_e, 1e-6)                 # floor avoids divide-by-zero
-    cf_each <- ifelse(!is.na(bed_idx), (sn_e + rnm_e) / sn_e, 1)
+    sn_e    <- 1 - rn_e - dn_e                              # feed-and-survive prob (no floor: not dividing by sn)
+    cf_each <- ifelse(!is.na(bed_idx),
+                      pmax(sn_e + rnm_e, 0) / pmax(1 - rnm_e, 1e-6),  # (sn+rnm)/(1-rnm): bounded, exclude killed
+                      1)
 
     if (Q_t > 0) sum(Q_each * cf_each) / Q_t else 1
   }

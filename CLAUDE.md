@@ -68,15 +68,26 @@ The exposure rate is `av_da = a * delta_atn * contact_factor` (see `R/biting_pro
 - **`delta_atn`** (the *fraction* `p_atn * phi_bednets * Q_t`) carries no repellency term — it is
   the net-user coverage exposure probability, not a rate. The FOI-splitting terms (`Lambda_i`,
   `Lambda0_t`) remain tied to `a` (feeding) because *infection requires a blood meal*.
-- **`contact_factor`** (new, 2026-06-19) corrects the exposure *rate* for mosquitoes that
-  **physically touch the net but do not feed**: barrier-repelled mosquitoes (prob `rnm`, the
-  untreated-net floor) touch the net → pick up the drug, so they belong in the exposed pool.
-  Only **chemical excito-repellency** (`rn − rnm`, the insecticide-driven part) keeps a mosquito
-  off the net. Formula: `contact_factor = (sn + rnm) / sn = (1 − rn_chem − dn) / (1 − rn − dn)`.
-  - Non-insecticidal ATN (`rn0 = rnm`, `dn0 = 0`): `contact_factor = 1/(1 − rnm)` (constant).
-  - Pyr-ATN fresh net: `(1 − rn0 − dn0 + rnm)/(1 − rn0 − dn0)`; decays to `1/(1 − rnm)` as
-    insecticide wanes (rn → rnm, dn → 0). Derived dynamically per event from the bednet schedule
-    (`parameters$bednet_rn`/`rnm`/`dn0`/`gamman`, matched by `t0_atn`).
+- **`contact_factor`** (new, 2026-06-19; corrected formula 2026-06-19) corrects the exposure *rate*
+  for mosquitoes that **physically touch the net but do not feed**: barrier-repelled mosquitoes
+  (prob `rnm`, the untreated-net floor) touch the net → pick up the drug, so they belong in the
+  exposed pool. Only **chemical excito-repellency** (`rn − rnm`, the insecticide-driven part) keeps
+  a mosquito off the net entirely. Formula (bounded, excludes pyrethroid-killed):
+  `contact_factor = (sn + rnm) / (1 − rnm)`, where `sn = 1 − rn − dn`, `rn_chem = rn − rnm`.
+  - Denominator `(1 − rnm)` is the untreated-net floor (~0.76) — always bounded, never collapses.
+    *Previous formula* `(sn + rnm)/sn` was buggy: `/sn → 0` for insecticidal nets inflated Pyr-ATN
+    exposure above ATN, inverting the correct ordering. Fixed to `/(1 − rnm)`.
+  - Numerator `(sn + rnm) = 1 − rn_chem − dn` excludes pyrethroid-killed mosquitoes (`dn`); a
+    dead mosquito cannot transmit.
+  - Scaling the realized `a` (not a no-net `a0`) preserves IRS + historical-net coupling for free:
+    IRS and historical non-ATN bednets already suppress `a` via `W`/`Z`; only the ATN net's own
+    repellency/mortality is re-applied via `contact_surv`. No double-counting.
+  - Non-insecticidal ATN (`rn0 = rnm`, `dn0 = 0`): `(1−rnm)/(1−rnm) = 1/(1−rnm)` (constant,
+    same as before — main ATN result unchanged by the formula correction).
+  - Pyr-ATN fresh net: `(1 − rn0 − dn0 + rnm)/(1 − rnm)`; decays to `1/(1 − rnm)` as insecticide
+    wanes (`rn → rnm`, `dn → 0`). Correctly `< 1/(1−rnm)` (Pyr-ATN < ATN, ordering restored).
+    Derived dynamically per event from the bednet schedule (`parameters$bednet_rn`/`rnm`/`dn0`/
+    `gamman`, matched by `t0_atn`).
   - ATN-off (`delta_atn = 0`): `av_da = 0` regardless — **baseline untouched**.
   - No `set_bednets` call: falls back to `contact_factor = 1`.
   - **Only `av_da` is affected.** `foim` (→ `Sv[0]`), EIR (`calculate_eir`), `mu`/`f`, the
@@ -295,13 +306,16 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   is respected and NOT overwritten. For logistic retention, a warning is issued and
   `lambda_atn = 1/bednet_logistic_half_life` is used. `compute_atn_kernels` falls back to
   `lambda_atn=0` (no waning) if no `set_bednets` call has been made. Tests in §12e.
-- **`contact_factor` sourcing (added 2026-06-19).** `compute_atn_kernels` reads the net's
-  `rn`/`rnm`/`dn0`/`gamman` for each ATN event by `match(t0_atn, parameters$bednet_timesteps)`.
-  In the Mali pipeline, `t0_atn = fsch$timesteps` and the bednet schedule is built from the same
-  vector (`mali_projection_run.R:248-258`), so every ATN event matches exactly one bednet row.
-  No new parameters needed — the existing bednet schedule matrices are reused. If `match` returns
-  NA (edge case: t0_atn not in bednet schedule), `contact_factor` falls back to 1 for that event.
-  Tests in §12f.
+- **`contact_factor` sourcing (added 2026-06-19; formula corrected 2026-06-19).** `compute_atn_kernels`
+  reads `rn`/`rnm`/`dn0`/`gamman` for each ATN event via `match(t0_atn, parameters$bednet_timesteps)`.
+  In the Mali pipeline every ATN event matches exactly one bednet row (same `timesteps` vector,
+  `mali_projection_run.R:248-258`). Formula: `(sn_e + rnm_e) / (1 − rnm_e)`, where
+  `sn_e = 1 − rn_e − dn_e`, then coverage-weighted across events. Numerator excludes killed (`dn`);
+  denominator is the untreated-net floor `(1 − rnm)` (bounded, ~0.76).
+  *Previous formula `(sn+rnm)/sn` was buggy*: `/sn` blows up for insecticidal nets and inverted
+  Pyr-ATN vs ATN exposure ordering; fixed by changing denominator to `(1 − rnm)`.
+  No new parameters — existing bednet schedule matrices reused. If `match` returns NA (edge case:
+  t0_atn not in bednet schedule), `contact_factor` falls back to 1 for that event. Tests in §12f.
 
 ## 11. Mali projection pipeline (dev/mali_projection_run.R, confirmed 2026-06-17)
 

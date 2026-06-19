@@ -330,9 +330,11 @@ test_that('set_bednets with logistic retention warns and sets lambda_atn = 1/hal
 
 # ── 12f: contact_factor — barrier-repelled mosquitoes get dosed ───────────────
 #
-# contact_factor = (sn + rnm) / sn scales av_da to include mosquitoes that
+# contact_factor = (sn + rnm) / (1 - rnm) scales av_da to include mosquitoes that
 # physically touch the net (barrier-repelled, prob rnm) but are not fed-and-survived.
 # Only chemical excito-repellency (rn - rnm) prevents net contact entirely.
+# Denominator (1 - rnm) is the untreated-net floor: fixed ~0.76, never collapses.
+# Numerator (sn + rnm) excludes pyrethroid-killed mosquitoes (dn); they cannot transmit.
 # All tests call compute_atn_kernels() directly with set_bednets set up so that
 # t0_atn matches a bednet schedule row (as in the Mali pipeline).
 
@@ -366,8 +368,10 @@ test_that('compute_atn_kernels: contact_factor = 1/(1-rnm) for non-insecticidal 
   expect_equal(k$contact_factor, 1 / (1 - rnm_val), tolerance = 1e-9)
 })
 
-test_that('compute_atn_kernels: contact_factor for fresh Pyr-ATN matches (sn+rnm)/sn at dt=0', {
+test_that('compute_atn_kernels: contact_factor for fresh Pyr-ATN matches (sn+rnm)/(1-rnm) at dt=0', {
   # At dt=0, rn(0)=rn0, dn(0)=dn0, sn(0)=1-rn0-dn0.
+  # contact_factor = (sn+rnm)/(1-rnm): bounded, excludes killed (dn), preserves coupling.
+  # Must be < 1/(1-rnm) (the non-insecticidal ATN value): Pyr-ATN < ATN ordering.
   rn0_val <- 0.5; rnm_val <- 0.24; dn0_val <- 0.3
   parameters <- get_parameters(list(
     p_atn = 0.9, Q0_atn = 0.8, t0_atn = 100L, lambda_atn = 0
@@ -384,8 +388,12 @@ test_that('compute_atn_kernels: contact_factor for fresh Pyr-ATN matches (sn+rnm
   parameters <- set_equilibrium(parameters, 50.)
   k <- compute_atn_kernels(100L, parameters, parameters$init_foim, 1L)
   sn_expected <- 1 - rn0_val - dn0_val
-  cf_expected <- (sn_expected + rnm_val) / sn_expected
+  cf_expected <- (sn_expected + rnm_val) / (1 - rnm_val)   # bounded denominator
   expect_equal(k$contact_factor, cf_expected, tolerance = 1e-9)
+  # Pyr-ATN contact_factor < non-insecticidal ATN value (ordering check)
+  expect_lt(k$contact_factor, 1 / (1 - rnm_val))
+  # factor < 1: pyrethroid removes more contacts than barrier-repelled adds back
+  expect_lt(k$contact_factor, 1)
 })
 
 test_that('compute_atn_kernels: contact_factor decays toward 1/(1-rnm) as Pyr-ATN ages', {

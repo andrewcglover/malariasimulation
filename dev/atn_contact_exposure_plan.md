@@ -39,21 +39,26 @@ mosquito density, human infection, EIR, or the existing baseline.
   `Sv→Ev[1]` rate `= delta_atn·Lambda0_t·Svtot` stays unchanged; `Sv→Sv[1]` absorbs the entire
   increase; the split still balances (it is not held constant — total exposure outflow rises).
 
-### The contact factor
+### The contact factor (corrected 2026-06-19)
 
 Per net-user encounter: `P(feed&survive) = sn = 1 − rn − dn`, `P(barrier-repelled) = rnm`,
-`P(killed) = dn`. Contacts that survive to transmit = feeds + barrier-repelled, so
+`P(killed) = dn`. Contacts that survive to transmit = feeds + barrier-repelled (excludes killed),
+normalised by the untreated-net floor (the yardstick for "no drug effect"):
 
 ```
-contact_factor = (sn + rnm) / sn = (1 − rn − dn + rnm) / (1 − rn − dn)
-               = (1 − rn_chem − dn) / (1 − rn − dn),   rn_chem = rn − rnm
+contact_factor = (sn + rnm) / (1 − rnm)
+               = (1 − rn_chem − dn) / (1 − rnm),   rn_chem = rn − rnm
 ```
 
-- Non-insecticidal ATN: `(1 − 0 − 0)/(1 − 0.24 − 0) = 1/0.76 ≈ 1.316` (constant).
-- Pyr-ATN: varies with net age via `rn(dt)`, `dn(dt)`; → `1/(1−rnm)` as the net ages.
-- Killed mosquitoes (`dn`) are excluded (already removed via elevated `mu`/reduced `a` on the
-  `set_bednets` side — do **not** re-count them).
-- **Numerical guard:** floor `sn` (e.g. `max(sn, 1e-6)`) to avoid divide-by-zero if `rn+dn → 1`.
+- **Denominator `(1 − rnm)`** is the untreated-net floor (~0.76) — fixed, bounded, never collapses.
+  *Earlier draft used `/sn`*, which blows up when `sn → 0` for insecticidal nets, inflating Pyr-ATN
+  exposure above ATN and inverting the expected ordering. **Fixed by using `/(1 − rnm)` instead.**
+- **Numerator `(sn + rnm)`** excludes `dn`-killed mosquitoes (cannot transmit).
+- Non-insecticidal ATN (`rn0 = rnm`, `dn0 = 0`): `(1−rnm)/(1−rnm) = 1/(1−rnm) ≈ 1.316` (constant).
+- Pyr-ATN: `(1 − rn_chem − dn) / (1−rnm) < 1/(1−rnm)` — correctly Pyr-ATN < ATN; → `1/(1−rnm)`
+  as insecticide wanes (`rn → rnm`, `dn → 0`).
+- Scaling the realized `a` (not a no-net `a0`) preserves IRS + historical-net coupling for free.
+- **Numerical guard:** `pmax(1 − rnm_e, 1e-6)` in denominator; `pmax(sn_e + rnm_e, 0)` in numerator.
 
 Exposure rate becomes `av_da = a · delta_atn · contact_factor`. With `delta_atn = 0` (ATN-off),
 `av_da = 0` regardless — **baseline untouched**.
