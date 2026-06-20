@@ -14,6 +14,9 @@ options(mali_test_mode = TRUE)
 source("dev/mali_projection_run.R")
 options(mali_test_mode = NULL)
 
+human_pop <- 100000L
+render_overrides$human_population <- human_pop
+
 future_start_year <- 2025
 
 # ── Choose test region ────────────────────────────────────────────────────────
