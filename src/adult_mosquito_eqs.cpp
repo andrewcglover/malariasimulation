@@ -48,7 +48,7 @@ integration_function_t create_eqs(AdultMosquitoModel& model) {
         // a few extra steps near a crossing, but prevents NaN propagation entirely).
         // Aquatic states (x[0..2]) are handled by the aquatic ODE; we clamp only
         // adult indices (3+). The nn lambda is used for all adult x[] reads below.
-        auto nn = [&x](size_t i) -> double { return x[i] < 0.0 ? 0.0 : x[i]; };
+        auto nn = [&x](size_t i) -> double { double v = x[i]; return v > 0.0 ? v : 0.0; };
 
         // --- total_M for aquatic sub-model ---
         double total_M_d = 0.0;
