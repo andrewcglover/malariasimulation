@@ -40,13 +40,23 @@ integration_function_t create_eqs(AdultMosquitoModel& model) {
         const size_t dq  = model.deltaq;
         const size_t sl  = model.spor_len;
 
+        // Non-negativity floor for adult compartment reads.
+        // DOPRI5 with high a_tol can overshoot near-zero states to slightly negative
+        // values; a negative compartment feeds back into rate terms with the wrong sign
+        // and can NaN-cascade. Clamping reads to zero breaks that cascade.
+        // This is a robustness guard, not a speed fix (the kink at zero may cost
+        // a few extra steps near a crossing, but prevents NaN propagation entirely).
+        // Aquatic states (x[0..2]) are handled by the aquatic ODE; we clamp only
+        // adult indices (3+). The nn lambda is used for all adult x[] reads below.
+        auto nn = [&x](size_t i) -> double { return x[i] < 0.0 ? 0.0 : x[i]; };
+
         // --- total_M for aquatic sub-model ---
         double total_M_d = 0.0;
         for (size_t q = 0u; q < dp1; ++q) {
-            total_M_d += x[sv_idx(q)];
+            total_M_d += nn(sv_idx(q));
             for (size_t j = 0u; j < sl; ++j)
-                total_M_d += x[ev_idx(q, j, dp1, sl)];
-            total_M_d += x[iv_idx(q, dp1, sl)];
+                total_M_d += nn(ev_idx(q, j, dp1, sl));
+            total_M_d += nn(iv_idx(q, dp1, sl));
         }
         model.growth_model.total_M = static_cast<size_t>(total_M_d);
 
@@ -58,19 +68,20 @@ integration_function_t create_eqs(AdultMosquitoModel& model) {
         std::vector<double> Ecol(sl, 0.0);
         for (size_t j = 0u; j < sl; ++j)
             for (size_t q = 0u; q < dp1; ++q)
-                Ecol[j] += x[ev_idx(q, j, dp1, sl)];
+                Ecol[j] += nn(ev_idx(q, j, dp1, sl));
 
         // Svtot = sum_q Sv[q]
         double Svtot = 0.0;
         for (size_t q = 0u; q < dp1; ++q)
-            Svtot += x[sv_idx(q)];
+            Svtot += nn(sv_idx(q));
 
         // Ivtot = sum_q Iv[q]
         double Ivtot = 0.0;
         for (size_t q = 0u; q < dp1; ++q)
-            Ivtot += x[iv_idx(q, dp1, sl)];
+            Ivtot += nn(iv_idx(q, dp1, sl));
 
         // B_post_Ecol_sum = sum_j B_post[j] * Ecol[j]  (used in dSv[1])
+        // Ecol[j] already non-negative from nn reads above.
         double B_post_Ecol_sum = 0.0;
         for (size_t j = 0u; j < sl; ++j)
             B_post_Ecol_sum += model.B_post[j] * Ecol[j];
@@ -88,7 +99,8 @@ integration_function_t create_eqs(AdultMosquitoModel& model) {
         const double av_da_s = av_da * (1.0 - dn);   // a*delta_atn*(1-dn)
         const double da_s    = da    * (1.0 - dn);    // delta_atn*(1-dn)
 
-        const double betaa = 0.5 * x[static_cast<size_t>(AquaticState::P)]
+        // Clamp pupa count via nn for betaa (aquatic state P is index 2).
+        const double betaa = 0.5 * nn(static_cast<size_t>(AquaticState::P))
                                  / model.growth_model.dp;
 
         // ==================== dSv ====================
@@ -97,8 +109,8 @@ integration_function_t create_eqs(AdultMosquitoModel& model) {
         // dSv[0] = betaa + kappa*Sv[dq] - (av_da + (1-da)*Lambda_i[0] + mu)*Sv[0]
         dxdt[sv_idx(0)] =
             betaa
-            + kappa * x[sv_idx(dq)]
-            - (av_da + (1.0 - da) * model.Lambda_i[0] + mu) * x[sv_idx(0)];
+            + kappa * nn(sv_idx(dq))
+            - (av_da + (1.0 - da) * model.Lambda_i[0] + mu) * nn(sv_idx(0));
 
         // q = 1 (first ATN-exposed compartment)
         // Inflow: newly exposed susceptibles minus those infected (Lambda0_t term)
@@ -108,23 +120,23 @@ integration_function_t create_eqs(AdultMosquitoModel& model) {
             dxdt[sv_idx(1)] =
                 (av_da_s - da_s * L0) * Svtot
                 + av_da_s * B_post_Ecol_sum
-                - (av_da + (1.0 - da) * model.Lambda_i[1] + kappa + mu) * x[sv_idx(1)];
+                - (av_da + (1.0 - da) * model.Lambda_i[1] + kappa + mu) * nn(sv_idx(1));
         }
 
         // q = 2..deltaq (conveyor: waning ATN effect)
         for (size_t q = 2u; q < dp1; ++q) {
             dxdt[sv_idx(q)] =
-                kappa * x[sv_idx(q - 1u)]
-                - (av_da + (1.0 - da) * model.Lambda_i[q] + kappa + mu) * x[sv_idx(q)];
+                kappa * nn(sv_idx(q - 1u))
+                - (av_da + (1.0 - da) * model.Lambda_i[q] + kappa + mu) * nn(sv_idx(q));
         }
 
         // ==================== dEv ====================
 
         // (q=0, j=0)  baseline, first EIP stage
         dxdt[ev_idx(0u, 0u, dp1, sl)] =
-            kappa * x[ev_idx(dq, 0u, dp1, sl)]
-            + (1.0 - da) * model.Lambda_i[0] * x[sv_idx(0u)]
-            - (av_da + rho + mu) * x[ev_idx(0u, 0u, dp1, sl)];
+            kappa * nn(ev_idx(dq, 0u, dp1, sl))
+            + (1.0 - da) * model.Lambda_i[0] * nn(sv_idx(0u))
+            - (av_da + rho + mu) * nn(ev_idx(0u, 0u, dp1, sl));
 
         // (q=1, j=0)  first exposed, first EIP stage
         // Inflow: surviving re-exposed non-blocked Ev + Lambda0_t term from Sv
@@ -133,24 +145,24 @@ integration_function_t create_eqs(AdultMosquitoModel& model) {
             dxdt[ev_idx(1u, 0u, dp1, sl)] =
                 (1.0 - model.B_post[0]) * av_da_s * Ecol[0]
                 + da_s * L0 * Svtot
-                + (1.0 - da) * model.Lambda_i[1] * x[sv_idx(1u)]
-                - (av_da + kappa + model.rho_i[1] + mu) * x[ev_idx(1u, 0u, dp1, sl)];
+                + (1.0 - da) * model.Lambda_i[1] * nn(sv_idx(1u))
+                - (av_da + kappa + model.rho_i[1] + mu) * nn(ev_idx(1u, 0u, dp1, sl));
         }
 
         // (q=2..deltaq, j=0)
         for (size_t q = 2u; q < dp1; ++q) {
             dxdt[ev_idx(q, 0u, dp1, sl)] =
-                kappa * x[ev_idx(q - 1u, 0u, dp1, sl)]
-                + (1.0 - da) * model.Lambda_i[q] * x[sv_idx(q)]
-                - (av_da + kappa + model.rho_i[q] + mu) * x[ev_idx(q, 0u, dp1, sl)];
+                kappa * nn(ev_idx(q - 1u, 0u, dp1, sl))
+                + (1.0 - da) * model.Lambda_i[q] * nn(sv_idx(q))
+                - (av_da + kappa + model.rho_i[q] + mu) * nn(ev_idx(q, 0u, dp1, sl));
         }
 
         // (q=0, j=1..spor_len-1)  baseline, later EIP stages
         for (size_t j = 1u; j < sl; ++j) {
             dxdt[ev_idx(0u, j, dp1, sl)] =
-                kappa * x[ev_idx(dq, j, dp1, sl)]
-                + rho * x[ev_idx(0u, j - 1u, dp1, sl)]
-                - (av_da + rho + mu) * x[ev_idx(0u, j, dp1, sl)];
+                kappa * nn(ev_idx(dq, j, dp1, sl))
+                + rho * nn(ev_idx(0u, j - 1u, dp1, sl))
+                - (av_da + rho + mu) * nn(ev_idx(0u, j, dp1, sl));
         }
 
         // (q=1, j=1..spor_len-1)  first exposed, later EIP stages
@@ -158,8 +170,8 @@ integration_function_t create_eqs(AdultMosquitoModel& model) {
             for (size_t j = 1u; j < sl; ++j) {
                 dxdt[ev_idx(1u, j, dp1, sl)] =
                     (1.0 - model.B_post[j]) * av_da_s * Ecol[j]
-                    + model.rho_i[1] * x[ev_idx(1u, j - 1u, dp1, sl)]
-                    - (av_da + kappa + model.rho_i[1] + mu) * x[ev_idx(1u, j, dp1, sl)];
+                    + model.rho_i[1] * nn(ev_idx(1u, j - 1u, dp1, sl))
+                    - (av_da + kappa + model.rho_i[1] + mu) * nn(ev_idx(1u, j, dp1, sl));
             }
         }
 
@@ -167,9 +179,9 @@ integration_function_t create_eqs(AdultMosquitoModel& model) {
         for (size_t q = 2u; q < dp1; ++q) {
             for (size_t j = 1u; j < sl; ++j) {
                 dxdt[ev_idx(q, j, dp1, sl)] =
-                    kappa * x[ev_idx(q - 1u, j, dp1, sl)]
-                    + model.rho_i[q] * x[ev_idx(q, j - 1u, dp1, sl)]
-                    - (av_da + kappa + model.rho_i[q] + mu) * x[ev_idx(q, j, dp1, sl)];
+                    kappa * nn(ev_idx(q - 1u, j, dp1, sl))
+                    + model.rho_i[q] * nn(ev_idx(q, j - 1u, dp1, sl))
+                    - (av_da + kappa + model.rho_i[q] + mu) * nn(ev_idx(q, j, dp1, sl));
             }
         }
 
@@ -177,24 +189,24 @@ integration_function_t create_eqs(AdultMosquitoModel& model) {
 
         // q = 0  (baseline)
         dxdt[iv_idx(0u, dp1, sl)] =
-            kappa * x[iv_idx(dq, dp1, sl)]
-            + rho * x[ev_idx(0u, sl - 1u, dp1, sl)]
-            - (av_da + mu) * x[iv_idx(0u, dp1, sl)];
+            kappa * nn(iv_idx(dq, dp1, sl))
+            + rho * nn(ev_idx(0u, sl - 1u, dp1, sl))
+            - (av_da + mu) * nn(iv_idx(0u, dp1, sl));
 
         // q = 1  (first exposed)
         if (dp1 > 1u) {
             dxdt[iv_idx(1u, dp1, sl)] =
                 av_da_s * Ivtot
-                + model.rho_i[1] * x[ev_idx(1u, sl - 1u, dp1, sl)]
-                - (av_da + kappa + mu) * x[iv_idx(1u, dp1, sl)];
+                + model.rho_i[1] * nn(ev_idx(1u, sl - 1u, dp1, sl))
+                - (av_da + kappa + mu) * nn(iv_idx(1u, dp1, sl));
         }
 
         // q = 2..deltaq
         for (size_t q = 2u; q < dp1; ++q) {
             dxdt[iv_idx(q, dp1, sl)] =
-                kappa * x[iv_idx(q - 1u, dp1, sl)]
-                + model.rho_i[q] * x[ev_idx(q, sl - 1u, dp1, sl)]
-                - (av_da + kappa + mu) * x[iv_idx(q, dp1, sl)];
+                kappa * nn(iv_idx(q - 1u, dp1, sl))
+                + model.rho_i[q] * nn(ev_idx(q, sl - 1u, dp1, sl))
+                - (av_da + kappa + mu) * nn(iv_idx(q, dp1, sl));
         }
     };
 }

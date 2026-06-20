@@ -269,8 +269,15 @@ build_params <- function(region, arm) {
     eir           = ms$eir$eir,
     overrides     = c(render_overrides, form_overrides, atn_overrides,
                       list(ode_max_steps = 1e8,
-                           a_tol = 0.01))  # raised from 1e-4: prevents near-zero thrashing
-                                           # on 135-state Erlang ODE at low mosquito density
+                           a_tol = 0.1))   # raised from 1e-4: prevents near-zero thrashing
+                                           # on Erlang adult-mosquito ODE at low density
+                                           # (none/cfp: 27 states, deltaq=1; atn/pyr_atn: 135).
+                                           # Without the C++ non-negativity floor, a_tol=0.1
+                                           # caused NaN cascades (negative overshoot in dry
+                                           # season trough). Floor + a_tol=0.1 together fix it.
+                                           # Max Ivtot error ~0.1–1 during near-elimination
+                                           # (biologically inert; human IBM reseeds when EIR
+                                           # recovers). See dev/bamako_solver_diagnosis.md.
   )
 
   # 6d. Combined net schedule: past (from site df) + future (CD, arm-specific).

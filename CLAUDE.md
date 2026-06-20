@@ -134,8 +134,9 @@ replacement for overlapping coverage (v3 lines ~773–864).
    entry point (constructor signature, state read-out).
 2. **Rewrite the adult derivative + state vector** to the `Sv/Ev/Iv` system above. Adult state grows
    from 3 to `deltaqp1*(2 + spor_len)`. Transcribe dSv/dEv/dIv from v3 lines ~538–603, but:
-   - **drop the `dt` factors** and the `if (x + dx < 0) 0` clamps — those are discrete-Euler hacks;
-     the continuous adaptive solver doesn't need them.
+   - **drop the `dt` factors** — those are discrete-Euler hacks; the continuous adaptive solver
+     integrates them natively. The `if (x + dx < 0) 0` guard from odin2/malariasimple is
+     replaced by the `nn` lambda non-negativity floor in `create_eqs` (see §8).
 3. **Plumb the new parameters** through `get_parameters()` (R) → the C++ constructor (Rcpp).
    Give every ATN parameter a **no-ATN default** (`Q0_atn = 0`, `n_atn = 1`, etc.) so existing call
    signatures and the `site`/`cali`/`scene`/`postie` ecosystem keep working unchanged.
@@ -182,7 +183,13 @@ replacement for overlapping coverage (v3 lines ~773–864).
 
 - EIP-as-delay → Erlang chain is the structural crux; get the `rho`/`rho_i` stage rates right.
 - Keep backward compatibility: no-ATN defaults must make the model bit-identical to upstream.
-- Continuous ODE ≠ discrete Euler: remove `dt` and negativity clamps; trust the solver tolerances.
+- Continuous ODE ≠ discrete Euler: remove `dt` discretisation factors from the dxdt expressions.
+  **Exception — non-negativity floor (added 2026-06-20):** a `nn` lambda in `create_eqs`
+  (`src/adult_mosquito_eqs.cpp`) clamps all adult compartment reads to `max(x[i], 0)`. This is
+  required because high `a_tol` (set in the Mali pipeline to prevent near-zero thrashing)
+  permits large steps that overshoot to slightly negative, triggering a NaN cascade via
+  wrong-sign outflow terms. The floor is robustness, not speed (may marginally slow near-zero
+  crossings). See `dev/bamako_solver_diagnosis.md`.
 - Don't rename the package — it would break the `malariasimulation::`-calling ecosystem.
 - **Dimension bounds:** require `deltaqp1 ≥ 2` (i.e. `deltaq ≥ 1`, since `kappa = 1/deltaq`),
   `spor_len ≥ 1`, and `n_atn ≥ 1`. For an ATN-*off* run use `n_atn = 1` with `Q0_atn = 0` (keep
@@ -331,8 +338,17 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   Same for `n_age_730_3649`. `run_one` uses these corrected names.
 - **Mali species:** gambiae / arabiensis / funestus (3 species). Any parameter test with Mali must
   handle per-species vectors; single-species `get_parameters()` defaults keep those as scalars.
-- **Validated run times (Mopti, n=1000, 31-year horizon, deltaq=10):** none ≈ 126 s,
-  cfp ≈ 137 s, atn ≈ 229 s, pyr_atn ≈ 215 s (per arm, sequential, Windows local).
+- **State sizes by arm in the Mali pipeline:** `none`/`cfp` use default `deltaq=1` (from
+  `get_parameters()`; `atn_overrides` only sets `deltaq=deltaq_use` for ATN arms) → `n_states=27`;
+  `atn`/`pyr_atn` use `deltaq=10` → `n_states=135`. Both sizes can fail at low mosquito density
+  without the non-negativity floor + raised `a_tol`.
+- **Bamako solver fix (implemented 2026-06-20):** `a_tol=0.1` (pipeline override) + C++ `nn`
+  non-negativity floor in `create_eqs`. Without the floor, `a_tol=0.1` caused NaN cascades
+  (negative-overshoot in dry-season trough → wrong-sign outflow → NaN). With both: confirmed
+  the Erlang chain runs stably. See `dev/bamako_solver_diagnosis.md` for timings once available.
+- **Validated run times (STALE — `n=1000`, `deltaq=10`, now using `n=10000`):** none ≈ 126 s,
+  cfp ≈ 137 s, atn ≈ 229 s, pyr_atn ≈ 215 s. These were Mopti at human_pop=1000; current
+  runs at 10000 are expected to take ~10× longer and are not yet benchmarked cleanly.
 - **Net retention is site-sourced (changed 2026-06-18).** `retention_time` is no longer hardcoded;
   it reads `unique(site_obj$interventions$mean_retention)` (≈2014 d for MLI), with a top-of-script
   `retention_override <- NULL` hook for manual override. NB: the site value is far longer than the
