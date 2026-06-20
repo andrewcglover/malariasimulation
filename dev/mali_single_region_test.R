@@ -1,10 +1,13 @@
 # dev/mali_single_region_test.R
 #
-# Smoke test: run all 4 arms sequentially for the highest-EIR Mali admin-1
-# region, then print a summary table.
+# Smoke test: run all 4 arms sequentially for a chosen Mali admin-1 region,
+# then print a summary table and plots.
 #
 # Usage (from the fork root, after devtools::load_all()):
 #   source("dev/mali_single_region_test.R")
+#
+# To change region: edit `test_region` below, or set it to NULL to
+# auto-select the highest-EIR region (original behaviour).
 
 # Source the run script for its functions + data; skip the cluster launch.
 options(mali_test_mode = TRUE)
@@ -13,15 +16,23 @@ options(mali_test_mode = NULL)
 
 future_start_year <- 2025
 
-# ── Pick highest-EIR region ───────────────────────────────────────────────────
-eir_by_region <- vapply(regions, function(rg) {
-  site_row <- site_obj$sites[site_obj$sites$name_1 == rg, , drop = FALSE]
-  ms       <- site::subset_site(site_obj, site_row)
-  ms$eir$eir
-}, numeric(1))
+# ── Choose test region ────────────────────────────────────────────────────────
+# Set to a region name (e.g. "Bamako") or NULL to auto-select highest EIR.
+test_region <- "Bamako"
 
-test_region <- names(which.max(eir_by_region))
-message(sprintf("\nHighest-EIR region: %s  (EIR = %.1f)\n", test_region, max(eir_by_region)))
+if (is.null(test_region)) {
+  eir_by_region <- vapply(regions, function(rg) {
+    site_row <- site_obj$sites[site_obj$sites$name_1 == rg, , drop = FALSE]
+    ms       <- site::subset_site(site_obj, site_row)
+    ms$eir$eir
+  }, numeric(1))
+  test_region <- names(which.max(eir_by_region))
+  message(sprintf("\nAuto-selected highest-EIR region: %s  (EIR = %.1f)\n",
+                  test_region, max(eir_by_region)))
+} else {
+  stopifnot(test_region %in% regions)
+  message(sprintf("\nTest region: %s\n", test_region))
+}
 
 # ── Run all 4 arms for that region ───────────────────────────────────────────
 results <- lapply(arms, function(arm) {
