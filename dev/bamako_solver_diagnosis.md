@@ -92,34 +92,55 @@ is the fast in-ODE rates × large near-zero state count × tight absolute tolera
 
 ### Fix 1 (primary) — raise adult ODE `a_tol` in the Mali pipeline
 
-Add `a_tol = 1` (or tune 0.1–1) to the `site_parameters()` overrides in
-`dev/mali_projection_run.R:239-240` alongside `ode_max_steps`:
+**IMPLEMENTED 2026-06-20** in `dev/mali_projection_run.R` overrides: `a_tol = 0.01`.
 
 ```r
-overrides = c(..., list(ode_max_steps = 1e8, a_tol = 1))
+overrides = c(..., list(ode_max_steps = 1e8, a_tol = 0.01))
 ```
 
 **Rationale:** mosquito compartment counts are biologically ≥ 0 with elimination at ~1 mosquito.
-Resolving sub-1-mosquito quantities to `a_tol = 1e-4` is physically meaningless and is the
-proximate cause of the near-zero thrashing. With `a_tol = 1`, near-zero compartments are
-allowed `O(1)` error (a mosquito or less), which is both biologically correct and eliminates the
-solver death spiral. Large compartments continue to be controlled by `r_tol · |x_i|`, so
-accuracy is preserved where it matters.
+Resolving sub-`1e-4`-mosquito quantities at the default `a_tol = 1e-4` is physically meaningless
+for near-zero compartments. With `a_tol = 0.01`, the per-compartment absolute error floor rises
+to 0.01 mosquitoes; the maximum accumulated error in `Ivtot` (11 Iv compartments) is ~0.1 —
+well below the biological elimination floor of ~1 mosquito. Large compartments continue to be
+controlled by `r_tol · |x_i|`, so accuracy is preserved where it matters.
 
-**Properties:** no recompile, no signature change, one-line reverting edit. Try `a_tol = 0.1`
-first (conservative); escalate to `1` if still failing. Keep `r_tol = 1e-4` unchanged.
+`a_tol = 0.01` not `1`: the more aggressive `a_tol = 1` was considered but rejected because
+accumulated Ivtot error (~O(10)) could produce artefactual EIR spikes during near-elimination.
 
-### Fix 2 (secondary, if Fix 1 is insufficient) — non-negativity floor in C++
+**Properties:** no recompile, no signature change, one-line reverting edit.
+Keep `r_tol = 1e-4` unchanged.
 
-Add a clamp in `src/adult_mosquito_eqs.cpp`, `create_eqs`, reading the compartment values
-through `std::max(x[i], 0.0)` before computing derivatives. This prevents transiently negative
-states from destabilising the stepper. Requires recompile + `Rcpp::compileAttributes()` + devtools
-reload.
+### Fix 2 (if Fix 1 insufficient) — higher-order explicit solver: RKF78
 
-### Fix 3 (alternative, not recommended for production) — raise `ode_max_steps` further
+If `a_tol = 0.01` reduces but does not eliminate failures, the remaining cause is likely
+**accuracy under the sharp dry-to-wet seasonal burst** (Bamako's carrying capacity rises steeply,
+driving a rapid cascade: K spike → larval pool → pupae → `betaa` surge → all 10 Erlang stages
+simultaneously). This is an accuracy-on-transient problem, not stiffness per se (Jacobian
+eigenvalue ratio stays ~10–15).
 
-Already at `1e8`; going to `1e9` would add ~10× wall time. Not a real fix — just postpones the
-failure to a slightly lower population.
+Fix: swap `runge_kutta_dopri5` (4th/5th order, 6 fn evals/step) for
+`runge_kutta_fehlberg78` (7th/8th order, 13 fn evals/step) in `src/solver.h`. Higher order means
+the local error is O(h^7) vs O(h^5) — roughly 3–5× fewer steps to track the same transient.
+Requires a small `src/solver.h` edit + recompile; no Jacobian or parameter changes.
+
+*Do NOT try an implicit solver (Rosenbrock4/BDF) for this reason alone*: implicit methods
+help when stability constrains step size (stiffness ratio > ~100); here the constraint is
+accuracy, and implicit methods do not improve accuracy per se. They would also require the full
+135×135 Jacobian (~135 extra fn evals per step) and C++ refactoring.
+
+### Fix 3 (if Fix 2 insufficient) — non-negativity floor in C++
+
+Add a clamp in `src/adult_mosquito_eqs.cpp`, `create_eqs`, reading near-zero compartments
+through `std::max(x[i], 0.0)` before computing derivatives. Prevents transiently negative states
+from destabilising the stepper on the recovery side of the trough. Requires recompile.
+
+### Fix 4 (last resort) — implicit solver (CVODE/Rosenbrock)
+
+If Fixes 1–3 all fail, the system is stiffer than the Jacobian analysis suggests (possibly
+through indirect aquatic↔adult coupling effects). CVODE (Sundials) or boost's `rosenbrock4`
+would then be appropriate. Both require the Jacobian (135×135, sparse-banded) and significant
+C++ work. Flag for redesign if reached.
 
 ---
 

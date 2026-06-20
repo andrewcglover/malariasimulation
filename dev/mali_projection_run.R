@@ -268,7 +268,9 @@ build_params <- function(region, arm) {
     seasonality   = ms_ext$seasonality$seasonality_parameters,
     eir           = ms$eir$eir,
     overrides     = c(render_overrides, form_overrides, atn_overrides,
-                      list(ode_max_steps = 1e8))
+                      list(ode_max_steps = 1e8,
+                           a_tol = 0.01))  # raised from 1e-4: prevents near-zero thrashing
+                                           # on 135-state Erlang ODE at low mosquito density
   )
 
   # 6d. Combined net schedule: past (from site df) + future (CD, arm-specific).
