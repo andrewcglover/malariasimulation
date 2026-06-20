@@ -4,8 +4,9 @@
 #   four future net arms (none/cfp/atn/pyr_atn), median single run, with
 #   continuous distribution (CD) of future nets. Parallel on Windows.
 #
-#   Past = calibrated site history (kept). Future non-net = case management +
-#   SMC carried forward; IRS / vaccines / PMC / LSM zeroed. Nets built
+#   Past = calibrated site history (kept). Future non-net interventions are
+#   controlled by the `future_interventions` toggle list near line 35; defaults
+#   carry CM + SMC forward and zero IRS / vaccines / PMC / LSM. Nets built
 #   manually (past from site df + future CD per arm) via one set_bednets().
 #
 #   Run from the FORK ROOT after building the fork interactively:
@@ -32,6 +33,21 @@ n_future_years <- 6L
 arms           <- c("none", "cfp", "atn", "pyr_atn")
 retention_override <- NULL # numeric (days) to override site mean_retention (default: use site)
 deltaq_use     <- 10L
+
+# Future non-net site interventions: carried forward at 2024 levels if TRUE,
+# zeroed over the future window if FALSE. Historical rows are ALWAYS kept.
+# Net columns (itn_*) are always zeroed here — nets are rebuilt per-arm below.
+# DEFAULT reproduces the current behaviour exactly (CM + SMC on, rest off).
+# To run with future CM/SMC off, set case_management and smc to FALSE.
+future_interventions <- list(
+  case_management = TRUE,   # tx_cov
+  smc             = TRUE,   # smc_cov
+  irs             = FALSE,  # irs_cov
+  rtss            = FALSE,  # rtss_cov
+  r21             = FALSE,  # r21_cov
+  pmc             = FALSE,  # pmc_cov
+  lsm             = FALSE   # lsm_cov
+)
 
 # Load the site early: net retention is sourced from it (used by the CD math below).
 site_obj <- readRDS(SITE_FILE)
@@ -191,15 +207,30 @@ build_params <- function(region, arm) {
   site_row <- site_obj$sites[site_obj$sites$name_1 == region, , drop = FALSE]
   ms       <- site::subset_site(site_obj, site_row)
 
-  # 6a. Extend future: carry last year's CM+SMC forward; zero IRS/vaccines/PMC/LSM/nets.
+  # 6a. Extend future: zero net columns (rebuilt per-arm); apply `future_interventions`
+  #     toggles for non-net columns.  Historical rows are always kept unchanged.
   ms_ext <- expand_interventions(ms, expand_year = n_future_years)
   fut    <- ms_ext$interventions$year >= future_yr0
-  zero_cols <- c("irs_cov", "rtss_cov", "r21_cov", "pmc_cov", "lsm_cov",
-                 "itn_input_dist", "itn_use")
-  for (col in zero_cols)
+
+  # Net columns — always zeroed (rebuilt from scratch by the arm-specific set_bednets call).
+  net_zero_cols <- c("itn_input_dist", "itn_use")
+  for (col in net_zero_cols)
     if (col %in% names(ms_ext$interventions))
       ms_ext$interventions[[col]][fut] <- 0
-  # tx_cov and smc_cov keep their carried-forward values.
+
+  # Toggleable non-net interventions (zero future window when toggled FALSE).
+  toggle_cols <- list(
+    case_management = "tx_cov",  smc  = "smc_cov", irs = "irs_cov",
+    rtss            = "rtss_cov", r21 = "r21_cov", pmc = "pmc_cov",
+    lsm             = "lsm_cov"
+  )
+  for (nm in names(toggle_cols)) {
+    if (!isTRUE(future_interventions[[nm]])) {
+      col <- toggle_cols[[nm]]
+      if (col %in% names(ms_ext$interventions))
+        ms_ext$interventions[[col]][fut] <- 0
+    }
+  }
 
   # 6b. ATN construction-time overrides (antimalarial arms only).
   #     These pass through site_parameters -> get_parameters(overrides=...).
