@@ -28,7 +28,7 @@ OUT_FILE  <- "dev/outputs/mali_projection_results.rds"
 FORK_PATH <- normalizePath(".")          # for pkgload::load_all() in workers
 N_CORES   <- min(16L, max(1L, parallel::detectCores() - 1L))
 
-human_pop      <- 10000L   # per-region population (smooth single-run incidence)
+human_pop      <- 100000L  # per-region population (smooth single-run incidence)
 n_future_years <- 6L
 arms           <- c("none", "cfp", "atn", "pyr_atn")
 retention_override <- NULL # numeric (days) to override site mean_retention (default: use site)
@@ -363,7 +363,8 @@ parallel::clusterExport(cl, c(
   "future_start_day", "future_campaign_days", "n_steps", "n_future_years",
   "cfp_pars", "only_pars", "atn_kern", "atn_halflife", "gamma_atn",
   "cd_cov", "campaign_cov", "cd_interval", "retention_time", "deltaq_use",
-  "render_overrides", "form_overrides", "human_pop"
+  "render_overrides", "form_overrides", "human_pop",
+  "future_interventions"
 ))
 
 t0 <- proc.time()[["elapsed"]]
