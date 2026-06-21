@@ -198,8 +198,30 @@ scatter_df <- atn_vs_cfp |>
   left_join(res_fut,  by = c(region = "name_1"))
 
 # Symmetric fill limits so white sits exactly at 0 (no net difference).
-fill_lim     <- max(abs(scatter_df$delta_clin), na.rm = TRUE) * c(-1, 1)
-fill_lim_pct <- max(abs(scatter_df$pct_clin),   na.rm = TRUE) * c(-1, 1)
+fill_lim <- max(abs(scatter_df$delta_clin), na.rm = TRUE) * c(-1, 1)
+
+# Manual limit for the % change scatter (single positive number, e.g. 50 for ±50%).
+# NULL = auto (symmetric at max observed abs value). Out-of-range points are
+# squished to the palette extremes. Upper legend label: ">X%"; lower label:
+# "<-X%" unless X == 100, in which case "-100%" (true floor).
+pct_scatter_lim <- NULL
+
+if (is.null(pct_scatter_lim)) {
+  fill_lim_pct <- max(abs(scatter_df$pct_clin), na.rm = TRUE) * c(-1, 1)
+  pct_breaks   <- waiver()
+  pct_labels   <- waiver()
+} else {
+  fill_lim_pct <- c(-pct_scatter_lim, pct_scatter_lim)
+  lo_lab <- if (pct_scatter_lim >= 100) "-100%" else sprintf("<-%g%%", pct_scatter_lim)
+  hi_lab <- sprintf(">%g%%", pct_scatter_lim)
+  pct_breaks <- c(-pct_scatter_lim, -pct_scatter_lim / 2, 0,
+                   pct_scatter_lim / 2,  pct_scatter_lim)
+  pct_labels <- c(lo_lab,
+                  sprintf("-%g%%", pct_scatter_lim / 2),
+                  "0%",
+                  sprintf("+%g%%", pct_scatter_lim / 2),
+                  hi_lab)
+}
 
 p_scatter <- ggplot(scatter_df, aes(res_fut, eir, fill = delta_clin)) +
   geom_point(shape = 21, size = 6, colour = "grey25", stroke = 0.5) +
@@ -230,7 +252,9 @@ p_scatter_pct <- ggplot(scatter_df, aes(res_fut, eir, fill = pct_clin)) +
   ggrepel::geom_text_repel(aes(label = region), size = 3, colour = "grey20",
                            box.padding = 0.5, seed = 1, max.overlaps = Inf) +
   scale_y_log10() +
-  cmocean::scale_fill_cmocean(name = "balance", limits = fill_lim_pct) +
+  cmocean::scale_fill_cmocean(name = "balance", limits = fill_lim_pct,
+                              oob = scales::squish,
+                              breaks = pct_breaks, labels = pct_labels) +
   theme_minimal(base_size = 11) +
   labs(
     x = "Future pyrethroid resistance (mean over distribution years)",
