@@ -156,6 +156,74 @@ ggsave("dev/outputs/mali_averted_maps.png", p_maps,
 message("Saved: dev/outputs/mali_prevalence_facet.png, dev/outputs/mali_incidence_facet.png, dev/outputs/mali_averted_maps.png")
 
 # ---------------------------------------------------------------------
+# 2b. Resistance x baseline-EIR scatter, coloured by ATN - Pyr-CFP
+#     change in annual clinical incidence (per 1,000 / yr).
+#
+#   x = future pyrethroid resistance, ARITHMETIC mean over the future
+#       distribution years (future_yr0 .. future_yr0 + n_future_years - 1).
+#       The model itself applies per-distribution-year resistance
+#       (build_future_schedule); this mean is only a per-region summary for
+#       the axis. Resistance is a bounded survival proportion, not a
+#       multiplicative rate, so arithmetic (not geometric) is the natural
+#       summary; over this 0.84-0.96 range the two differ by < 1e-3 anyway.
+#   y = baseline (calibration) EIR from the site file, log10 scale
+#       (spans ~6 to ~500 across regions).
+#   fill = ATN cases - Pyr-CFP cases, per 1,000 / yr (cmocean "balance",
+#       symmetric about 0):  RED  = ATN worse (more cases),
+#                            BLUE = ATN better (fewer cases).
+# ---------------------------------------------------------------------
+site_obj <- readRDS("dev/site_files/without_split/MLI.rds")
+
+fut_years <- meta$future_yr0 + 0:(meta$n_future_years - 1L)
+res_fut <- site_obj$vectors$pyrethroid_resistance |>
+  filter(year %in% fut_years) |>
+  group_by(name_1) |>
+  summarise(res_fut = mean(pyrethroid_resistance), .groups = "drop")
+
+eir_base <- site_obj$eir |>
+  filter(sp == "pf") |>
+  select(name_1, eir)
+
+# ATN - Pyr-CFP change in clinical incidence (positive = ATN has MORE cases).
+atn_vs_cfp <- df_win |>
+  filter(arm %in% c("atn", "cfp")) |>
+  group_by(region, arm) |>
+  summarise(cases = sum(clin_inc), .groups = "drop") |>
+  pivot_wider(names_from = arm, values_from = cases) |>
+  mutate(delta_clin = per1000_yr(atn - cfp))   # ATN minus Pyr-CFP, /1000/yr
+
+scatter_df <- atn_vs_cfp |>
+  left_join(eir_base, by = c(region = "name_1")) |>
+  left_join(res_fut,  by = c(region = "name_1"))
+
+# Symmetric fill limits so white sits exactly at 0 (no net difference).
+fill_lim <- max(abs(scatter_df$delta_clin), na.rm = TRUE) * c(-1, 1)
+
+p_scatter <- ggplot(scatter_df, aes(res_fut, eir, fill = delta_clin)) +
+  geom_point(shape = 21, size = 6, colour = "grey25", stroke = 0.5) +
+  ggrepel::geom_text_repel(aes(label = region), size = 3, colour = "grey20",
+                           box.padding = 0.5, seed = 1, max.overlaps = Inf) +
+  scale_y_log10() +
+  # balance runs blue (low) -> white (0) -> red (high): negative delta
+  # (ATN better) = blue, positive (ATN worse) = red. No direction flip.
+  cmocean::scale_fill_cmocean(name = "balance", limits = fill_lim) +
+  theme_minimal(base_size = 11) +
+  labs(
+    x = "Future pyrethroid resistance (mean over distribution years)",
+    y = "Baseline EIR (log scale)",
+    fill = "ATN - Pyr-CFP\nclinical cases\n(/1,000 / yr)",
+    title = "Mali - ATN vs Pyr-CFP by resistance and transmission intensity",
+    caption = paste0(
+      "Each point = one admin-1 region. Fill = annual clinical incidence under ATN minus Pyr-CFP",
+      " (per 1,000 / yr over the ", meta$n_future_years, "-yr window).\n",
+      "Blue = ATN averts more than Pyr-CFP (better); red = ATN averts less (worse).",
+      " x = arithmetic mean future resistance (", min(fut_years), "-", max(fut_years), ")."))
+
+ggsave("dev/outputs/mali_resistance_eir_scatter.png", p_scatter,
+       width = 9, height = 7, dpi = 150)
+message("Saved: dev/outputs/mali_resistance_eir_scatter.png")
+
+# ---------------------------------------------------------------------
 # 3. Past-window consistency check
 #
 # Two expected sources of arm divergence even before future_start_day:
