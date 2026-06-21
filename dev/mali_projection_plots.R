@@ -190,14 +190,16 @@ atn_vs_cfp <- df_win |>
   group_by(region, arm) |>
   summarise(cases = sum(clin_inc), .groups = "drop") |>
   pivot_wider(names_from = arm, values_from = cases) |>
-  mutate(delta_clin = per1000_yr(atn - cfp))   # ATN minus Pyr-CFP, /1000/yr
+  mutate(delta_clin = per1000_yr(atn - cfp),        # ATN minus Pyr-CFP, /1000/yr
+         pct_clin  = (atn - cfp) / cfp * 100)       # % change, Pyr-CFP denominator
 
 scatter_df <- atn_vs_cfp |>
   left_join(eir_base, by = c(region = "name_1")) |>
   left_join(res_fut,  by = c(region = "name_1"))
 
 # Symmetric fill limits so white sits exactly at 0 (no net difference).
-fill_lim <- max(abs(scatter_df$delta_clin), na.rm = TRUE) * c(-1, 1)
+fill_lim     <- max(abs(scatter_df$delta_clin), na.rm = TRUE) * c(-1, 1)
+fill_lim_pct <- max(abs(scatter_df$pct_clin),   na.rm = TRUE) * c(-1, 1)
 
 p_scatter <- ggplot(scatter_df, aes(res_fut, eir, fill = delta_clin)) +
   geom_point(shape = 21, size = 6, colour = "grey25", stroke = 0.5) +
@@ -221,7 +223,29 @@ p_scatter <- ggplot(scatter_df, aes(res_fut, eir, fill = delta_clin)) +
 
 ggsave("dev/outputs/mali_resistance_eir_scatter.png", p_scatter,
        width = 9, height = 7, dpi = 150)
-message("Saved: dev/outputs/mali_resistance_eir_scatter.png")
+
+# Percentage-change version (Pyr-CFP as denominator).
+p_scatter_pct <- ggplot(scatter_df, aes(res_fut, eir, fill = pct_clin)) +
+  geom_point(shape = 21, size = 6, colour = "grey25", stroke = 0.5) +
+  ggrepel::geom_text_repel(aes(label = region), size = 3, colour = "grey20",
+                           box.padding = 0.5, seed = 1, max.overlaps = Inf) +
+  scale_y_log10() +
+  cmocean::scale_fill_cmocean(name = "balance", limits = fill_lim_pct) +
+  theme_minimal(base_size = 11) +
+  labs(
+    x = "Future pyrethroid resistance (mean over distribution years)",
+    y = "Baseline EIR (log scale)",
+    fill = "ATN vs Pyr-CFP\nclinical cases\n(% change)",
+    title = "Mali - ATN vs Pyr-CFP by resistance and transmission intensity (% change)",
+    caption = paste0(
+      "Each point = one admin-1 region. Fill = (ATN - Pyr-CFP) / Pyr-CFP x 100%",
+      " over the ", meta$n_future_years, "-yr window.\n",
+      "Blue = ATN has fewer cases than Pyr-CFP (better); red = ATN has more cases (worse).",
+      " x = arithmetic mean future resistance (", min(fut_years), "-", max(fut_years), ")."))
+
+ggsave("dev/outputs/mali_resistance_eir_scatter_pct.png", p_scatter_pct,
+       width = 9, height = 7, dpi = 150)
+message("Saved: dev/outputs/mali_resistance_eir_scatter.png, dev/outputs/mali_resistance_eir_scatter_pct.png")
 
 # ---------------------------------------------------------------------
 # 3. Past-window consistency check
