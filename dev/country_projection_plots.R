@@ -40,10 +40,11 @@ arm_cols   <- c("No future nets" = "grey50",
 
 # Dynamic excluded-region note (replaces hardcoded "Bamako excluded" in the Mali script).
 missing_regions <- setdiff(shape[[SHAPE_KEY]], unique(df$region))
-excl_note <- if (length(missing_regions) > 0L)
+excl_note <- if (length(missing_regions) > 0L) {
   paste0(" Excluded (no successful run): ", paste(missing_regions, collapse = ", "), ".")
-else
+} else {
   ""
+}
 
 # ---------------------------------------------------------------------
 # 1. Geographic facets of prevalence over the future window
