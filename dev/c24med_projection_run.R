@@ -35,9 +35,24 @@ source("dev/InterventionExpansion.R")
 # ---------------------------------------------------------------------
 COUNTRY_ISO <- "MLI"   # ISO3 of site file under dev/site_files/without_split/
 SITE_FILE   <- sprintf("dev/site_files/without_split/%s.rds", COUNTRY_ISO)
-OUT_FILE    <- sprintf("dev/outputs/%s_c24med_projection_results.rds", tolower(COUNTRY_ISO))
 FORK_PATH   <- normalizePath(".")
-N_CORES     <- min(16L, max(1L, parallel::detectCores() - 1L))
+
+# ANTIMAL_HL_YEARS: antimalarial half-life in years. Override via env var to run
+# sensitivity sweeps without editing this file (avoids edit-races during concurrent runs).
+#   Default: 2.64 yr (same as before). Sensitivity: 5, 1.
+#   Launch as: ANTIMAL_HL_YEARS=5 SWEEP_CORES=10 Rscript dev/c24med_projection_run.R
+hl_years       <- as.numeric(Sys.getenv("ANTIMAL_HL_YEARS", "2.64"))
+hl_tag         <- gsub("\\.", "p", format(hl_years, trim = TRUE))  # 2.64->"2p64", 5->"5", 1->"1"
+OUT_FILE       <- sprintf("dev/outputs/%s_c24med_projection_results_hl%s.rds",
+                          tolower(COUNTRY_ISO), hl_tag)
+
+# SWEEP_CORES: number of parallel workers. Override via env var for concurrent runs.
+sweep_cores_env <- Sys.getenv("SWEEP_CORES", "")
+N_CORES <- if (nchar(sweep_cores_env) > 0L) {
+  as.integer(sweep_cores_env)
+} else {
+  min(16L, max(1L, parallel::detectCores() - 1L))
+}
 
 human_pop      <- 100000L
 n_future_years <- 6L
@@ -59,6 +74,8 @@ future_interventions <- list(
 site_obj     <- readRDS(SITE_FILE)
 country_name <- unique(site_obj$country)[1]
 message(sprintf("Country: %s (%s)", country_name, COUNTRY_ISO))
+message(sprintf("ANTIMAL HL: %.2f yr (tag: hl%s) | cores: %d", hl_years, hl_tag, N_CORES))
+message(sprintf("OUT_FILE: %s", OUT_FILE))
 
 site_retention <- unique(site_obj$interventions$mean_retention)
 stopifnot(length(site_retention) == 1L)
@@ -98,10 +115,10 @@ med_net <- function(pars, res) {
 }
 
 # ---------------------------------------------------------------------
-# 3. Antimalarial decay — FIXED, not derived from any read-in parameter.
-#    Half-life = 2.64 years (same as the max gamman in the RDS draws).
+# 3. Antimalarial decay — derived from hl_years (env-var overridable, see top).
+#    Default half-life = 2.64 years. Sensitivity: 5 yr, 1 yr.
 # ---------------------------------------------------------------------
-ANTIMAL_HL_DAYS <- 2.64 * 365        # antimalarial half-life (days)
+ANTIMAL_HL_DAYS <- hl_years * 365    # antimalarial half-life (days)
 gamma_atn       <- log(2) / ANTIMAL_HL_DAYS   # potency decay rate (/day)
 
 # ---------------------------------------------------------------------
@@ -382,7 +399,9 @@ saveRDS(list(
     cd_floor       = cd_floor,
     cd_cov         = cd_cov,
     gamma_atn      = gamma_atn,
-    ANTIMAL_HL_DAYS = ANTIMAL_HL_DAYS
+    ANTIMAL_HL_DAYS = ANTIMAL_HL_DAYS,
+    hl_years       = hl_years,
+    hl_tag         = hl_tag
   )
 ), OUT_FILE)
 message("Saved -> ", OUT_FILE)
