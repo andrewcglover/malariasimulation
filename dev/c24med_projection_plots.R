@@ -180,12 +180,56 @@ make_averted_map <- function(fill_col, title) {
     labs(title = title, fill = "Averted /\n1,000 / yr")
 }
 
-m_pyr         <- make_averted_map("pyr_averted",         "Pyr")
-m_pyr_pbo     <- make_averted_map("pyr_pbo_averted",     "Pyr-PBO")
-m_pyr_cfp     <- make_averted_map("pyr_cfp_averted",     "Pyr-CFP")
-m_atn         <- make_averted_map("atn_averted",         "ATN")
-m_pyr_atn     <- make_averted_map("pyr_atn_averted",     "Pyr-ATN")
-m_pyr_cfp_atn <- make_averted_map("pyr_cfp_atn_averted", "Pyr-CFP-ATN")
+# Add a Bamako bounding-box rectangle to the main map and overlay a zoomed
+# inset in the north-west (top-left) corner of the panel.
+# Adjust `expand` (degrees) and inset corner coords (0-1 npc) to taste.
+add_bamako_inset <- function(p_main, fill_col, fill_lims) {
+  bamako_sf <- map_df[map_df[[SHAPE_KEY]] == "Bamako", ]
+
+  # Expand the bounding box slightly so the rectangle is visible on the main map.
+  bb <- sf::st_bbox(bamako_sf)
+  expand <- 0.5   # degrees; increase if the highlight box looks too tight
+  bb["xmin"] <- bb["xmin"] - expand
+  bb["ymin"] <- bb["ymin"] - expand
+  bb["xmax"] <- bb["xmax"] + expand
+  bb["ymax"] <- bb["ymax"] + expand
+  bb_rect <- sf::st_as_sfc(bb)
+
+  p_rect <- p_main +
+    geom_sf(data = bb_rect, fill = NA, colour = "black",
+            linewidth = 0.7, inherit.aes = FALSE)
+
+  # Inset: Bamako polygon with matching fill scale, black border, no legend.
+  p_inset <- ggplot(bamako_sf) +
+    geom_sf(aes(fill = .data[[fill_col]]), colour = "grey30", linewidth = 0.5) +
+    scale_fill_viridis_c(option = "D", limits = fill_lims) +
+    theme_void(base_size = 8) +
+    theme(
+      legend.position = "none",
+      panel.border    = element_rect(colour = "black", fill = NA, linewidth = 0.8)
+    )
+
+  # Overlay in the NW corner; coords are 0-1 relative to the map panel.
+  # Adjust left/bottom/right/top if the inset needs repositioning.
+  p_rect + patchwork::inset_element(
+    p_inset,
+    left = 0, bottom = 0.60, right = 0.35, top = 1.0,
+    align_to = "panel"
+  )
+}
+
+m_pyr         <- add_bamako_inset(make_averted_map("pyr_averted",         "Pyr"),
+                                  "pyr_averted",         averted_rng)
+m_pyr_pbo     <- add_bamako_inset(make_averted_map("pyr_pbo_averted",     "Pyr-PBO"),
+                                  "pyr_pbo_averted",     averted_rng)
+m_pyr_cfp     <- add_bamako_inset(make_averted_map("pyr_cfp_averted",     "Pyr-CFP"),
+                                  "pyr_cfp_averted",     averted_rng)
+m_atn         <- add_bamako_inset(make_averted_map("atn_averted",         "ATN"),
+                                  "atn_averted",         averted_rng)
+m_pyr_atn     <- add_bamako_inset(make_averted_map("pyr_atn_averted",     "Pyr-ATN"),
+                                  "pyr_atn_averted",     averted_rng)
+m_pyr_cfp_atn <- add_bamako_inset(make_averted_map("pyr_cfp_atn_averted", "Pyr-CFP-ATN"),
+                                  "pyr_cfp_atn_averted", averted_rng)
 
 maps_caption <- paste0(
   "'No future nets' = historical ITNs decaying from ", meta$future_yr0,
