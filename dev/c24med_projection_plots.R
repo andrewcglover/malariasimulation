@@ -1,9 +1,10 @@
 # =====================================================================
 # c24med_projection_plots.R
-#   Reads dev/outputs/<iso>_c24med_projection_results.rds and produces
-#   prevalence/incidence geofacet timeseries + cases-averted choropleths
-#   for all 7 arms (none / pyr / pyr_pbo / pyr_cfp / atn / pyr_atn /
-#   pyr_cfp_atn).
+#   Reads dev/outputs/<iso>_c24med_projection_results.rds and produces:
+#     (1) prevalence / incidence geofacet timeseries
+#     (2) cases-averted vs no-nets bar chart (geofacet)
+#     (3) cases-averted choropleths (6 arms, 2x3 layout)
+#     (4) % ATN-exposed mosquitoes geofacet (ATN-bearing arms only)
 #   Change COUNTRY_ISO to plot any available c24med run.
 # =====================================================================
 
@@ -17,10 +18,10 @@ COUNTRY_ISO  <- "MLI"
 RESULTS_FILE <- sprintf("dev/outputs/%s_c24med_projection_results.rds", tolower(COUNTRY_ISO))
 SITE_FILE    <- sprintf("dev/site_files/without_split/%s.rds", COUNTRY_ISO)
 
-obj  <- readRDS(RESULTS_FILE)
-df   <- obj$results
+obj   <- readRDS(RESULTS_FILE)
+df    <- obj$results
 shape <- obj$shape
-meta <- obj$meta
+meta  <- obj$meta
 
 country_name <- if (!is.null(meta$country_name)) meta$country_name else COUNTRY_ISO
 SHAPE_KEY    <- "name_1"
@@ -43,27 +44,27 @@ SHAPE_KEY    <- "name_1"
 #  Arm assignments (adjust hex codes here to remap colours):
 # ---------------------------------------------------------------------
 arm_labels <- c(
-  none        = "No future nets",
-  pyr         = "Future Pyr",
-  pyr_pbo     = "Future Pyr-PBO",
-  pyr_cfp     = "Future Pyr-CFP",
-  atn         = "Future ATN",
-  pyr_atn     = "Future Pyr-ATN",
-  pyr_cfp_atn = "Future Pyr-CFP-ATN"
+  none        = "No nets",
+  pyr         = "Pyr",
+  pyr_pbo     = "Pyr-PBO",
+  pyr_cfp     = "Pyr-CFP",
+  atn         = "ATN",
+  pyr_atn     = "Pyr-ATN",
+  pyr_cfp_atn = "Pyr-CFP-ATN"
 )
 
 arm_cols <- c(
-  "No future nets"      = "#DDDDDD",  # pale   — baseline / no intervention
-  "Future Pyr"          = "#88CCEE",  # cyan   — pyrethroid only
-  "Future Pyr-PBO"      = "#44AA99",  # teal   — pyrethroid + PBO
-  "Future Pyr-CFP"      = "#117733",  # green  — pyrethroid + CFP
-  "Future ATN"          = "#DDCC77",  # sand   — antimalarial net (no insecticide)
-  "Future Pyr-ATN"      = "#CC6677",  # rose   — pyrethroid + antimalarial
-  "Future Pyr-CFP-ATN"  = "#882255"   # wine   — pyrethroid-CFP + antimalarial
+  "No nets"       = "#DDDDDD",  # pale   — no intervention baseline
+  "Pyr"           = "#DDCC77",  # sand
+  "Pyr-PBO"       = "#CC6677",  # rose
+  "Pyr-CFP"       = "#882255",  # wine
+  "ATN"           = "#117733",  # green
+  "Pyr-ATN"       = "#44AA99",  # teal
+  "Pyr-CFP-ATN"   = "#88CCEE"   # cyan
 )
 
 # ---------------------------------------------------------------------
-# 2. Prep windows
+# 2. Prep windows & grid
 # ---------------------------------------------------------------------
 df_win <- df |>
   filter(year_rel >= 0, year_rel <= meta$n_future_years) |>
@@ -76,9 +77,6 @@ excl_note <- if (length(missing_regions) > 0L) {
   ""
 }
 
-# ---------------------------------------------------------------------
-# 3. Geofacet timeseries (prevalence + clinical incidence)
-# ---------------------------------------------------------------------
 country_grid_raw <- geofacet::grid_auto(shape, names = SHAPE_KEY, seed = 1)
 names(country_grid_raw)[names(country_grid_raw) == paste0("name_", SHAPE_KEY)] <- "name"
 country_grid_raw$code <- country_grid_raw$name
@@ -86,6 +84,18 @@ present_regions <- unique(df_win$region)
 country_grid <- country_grid_raw[country_grid_raw$code %in% present_regions,
                                  c("row", "col", "code", "name")]
 
+vline_df     <- data.frame(xintercept = meta$future_yr0)
+base_caption <- paste0(
+  "Dashed line = future distribution start (", meta$future_yr0, ").",
+  " Thick line = 365-day rolling mean.\n",
+  "'No nets': historical ITNs only, decaying from ", meta$future_yr0,
+  " (no new distributions).", excl_note,
+  "\nNet efficacy: Churcher 2024 median estimates."
+)
+
+# ---------------------------------------------------------------------
+# 3. Geofacet timeseries — prevalence & clinical incidence
+# ---------------------------------------------------------------------
 df_plot <- df |>
   filter(year_rel >= -3) |>
   mutate(
@@ -101,15 +111,6 @@ df_plot <- df |>
   ) |>
   ungroup()
 
-vline_df     <- data.frame(xintercept = meta$future_yr0)
-plot_caption <- paste0(
-  "Dashed line = future distribution start (", meta$future_yr0, ").",
-  " Thick line = 365-day rolling mean.\n",
-  "'No future nets': historical ITNs only, decaying from ", meta$future_yr0,
-  " (no new distributions).", excl_note,
-  "\nNet efficacy: Churcher 2024 median estimates."
-)
-
 p_prev <- ggplot(df_plot, aes(cal_year, pfpr2to10 * 100, colour = arm_f)) +
   geom_vline(data = vline_df, aes(xintercept = xintercept),
              linetype = "dashed", colour = "grey40", linewidth = 0.4) +
@@ -123,7 +124,7 @@ p_prev <- ggplot(df_plot, aes(cal_year, pfpr2to10 * 100, colour = arm_f)) +
        colour = "",
        title   = paste0(country_name,
                         " — projected prevalence by region and future net scenario (c24med)"),
-       caption = plot_caption)
+       caption = base_caption)
 
 p_clin_series <- ggplot(df_plot, aes(cal_year, clin_rate, colour = arm_f)) +
   geom_vline(data = vline_df, aes(xintercept = xintercept),
@@ -138,7 +139,7 @@ p_clin_series <- ggplot(df_plot, aes(cal_year, clin_rate, colour = arm_f)) +
        colour = "",
        title   = paste0(country_name,
                         " — projected clinical incidence by region and future net scenario (c24med)"),
-       caption = plot_caption)
+       caption = base_caption)
 
 out_prev <- sprintf("dev/outputs/%s_c24med_prevalence_facet.png",  tolower(COUNTRY_ISO))
 out_clin <- sprintf("dev/outputs/%s_c24med_incidence_facet.png",   tolower(COUNTRY_ISO))
@@ -147,8 +148,7 @@ ggsave(out_clin, p_clin_series,  width = 13, height = 9, dpi = 150)
 message(sprintf("Saved: %s, %s", out_prev, out_clin))
 
 # ---------------------------------------------------------------------
-# 4. Clinical cases averted vs no-nets (future window, per 1,000 pop / yr)
-#    Six intervention arms shown as two rows of three maps.
+# 4. Bar chart — cases averted vs no-nets (geofacet)
 # ---------------------------------------------------------------------
 per1000_yr <- function(total) total / meta$human_pop * 1000 / meta$n_future_years
 
@@ -165,9 +165,44 @@ tot <- df_win |>
     pyr_cfp_atn_averted = per1000_yr(none - pyr_cfp_atn)
   )
 
+averted_long <- tot |>
+  select(region, ends_with("_averted")) |>
+  pivot_longer(-region, names_to = "arm_col", values_to = "averted") |>
+  mutate(
+    arm   = sub("_averted$", "", arm_col),
+    arm_f = factor(arm_labels[arm], levels = arm_labels)
+  )
+
+p_bar <- ggplot(averted_long, aes(x = arm_f, y = averted, fill = arm_f)) +
+  geom_col(width = 0.75) +
+  geom_hline(yintercept = 0, linewidth = 0.3, colour = "grey40") +
+  scale_fill_manual(values = arm_cols) +
+  geofacet::facet_geo(~ region, grid = country_grid, scales = "fixed") +
+  theme_minimal(base_size = 10) +
+  theme(
+    axis.text.x     = element_blank(),
+    axis.ticks.x    = element_blank(),
+    legend.position = "bottom"
+  ) +
+  guides(fill = guide_legend(nrow = 1)) +
+  labs(x = "", y = "Cases averted vs no nets (per 1,000 / yr)",
+       fill    = "",
+       title   = paste0(country_name,
+                        " — clinical cases averted over ", meta$n_future_years,
+                        "-yr projection (c24med)"),
+       caption = paste0("Cases averted vs 'no nets' arm, averaged over the ",
+                        meta$n_future_years, "-yr future window.\n",
+                        "Net efficacy: Churcher 2024 median estimates.", excl_note))
+
+out_bar <- sprintf("dev/outputs/%s_c24med_averted_bar.png", tolower(COUNTRY_ISO))
+ggsave(out_bar, p_bar, width = 13, height = 9, dpi = 150)
+message(sprintf("Saved: %s", out_bar))
+
+# ---------------------------------------------------------------------
+# 5. Averted choropleths (2 x 3), with Bamako inset for MLI only
+# ---------------------------------------------------------------------
 map_df <- shape |> left_join(tot, by = setNames("region", SHAPE_KEY))
 
-# Shared fill limits across all six averted maps so colours are comparable.
 averted_cols <- c("pyr_averted", "pyr_pbo_averted", "pyr_cfp_averted",
                   "atn_averted", "pyr_atn_averted", "pyr_cfp_atn_averted")
 averted_rng  <- range(unlist(tot[averted_cols]), na.rm = TRUE)
@@ -180,59 +215,70 @@ make_averted_map <- function(fill_col, title) {
     labs(title = title, fill = "Averted /\n1,000 / yr")
 }
 
-# Add a Bamako bounding-box rectangle to the main map and overlay a zoomed
-# inset in the north-west (top-left) corner of the panel.
-# Adjust `expand` (degrees) and inset corner coords (0-1 npc) to taste.
+# Bamako inset — only applied for MLI (where Bamako is the small capital district).
+# For other countries, make_averted_map() output is used directly.
+# expand_inset controls both the rectangle on the main map and the coord limits
+# of the inset, so they match exactly. Adjust to taste.
+# Inset panel position: left/bottom/right/top in 0-1 npc relative to map panel.
 add_bamako_inset <- function(p_main, fill_col, fill_lims) {
-  bamako_sf <- map_df[map_df[[SHAPE_KEY]] == "Bamako", ]
+  bamako_sf    <- map_df[map_df[[SHAPE_KEY]] == "Bamako", ]
+  bb           <- sf::st_bbox(bamako_sf)
+  expand_inset <- 0.15   # degrees; controls both rectangle size and inset zoom
 
-  # Expand the bounding box slightly so the rectangle is visible on the main map.
-  bb <- sf::st_bbox(bamako_sf)
-  expand <- 0.5   # degrees; increase if the highlight box looks too tight
-  bb["xmin"] <- bb["xmin"] - expand
-  bb["ymin"] <- bb["ymin"] - expand
-  bb["xmax"] <- bb["xmax"] + expand
-  bb["ymax"] <- bb["ymax"] + expand
+  xlim <- c(bb["xmin"] - expand_inset, bb["xmax"] + expand_inset)
+  ylim <- c(bb["ymin"] - expand_inset, bb["ymax"] + expand_inset)
+
+  # Modify bbox to draw the matching rectangle on the main map.
+  bb["xmin"] <- xlim[1]; bb["xmax"] <- xlim[2]
+  bb["ymin"] <- ylim[1]; bb["ymax"] <- ylim[2]
   bb_rect <- sf::st_as_sfc(bb)
 
   p_rect <- p_main +
     geom_sf(data = bb_rect, fill = NA, colour = "black",
             linewidth = 0.7, inherit.aes = FALSE)
 
-  # Inset: Bamako polygon with matching fill scale, black border, no legend.
+  # Inset zoomed to exactly the same extent as the rectangle.
   p_inset <- ggplot(bamako_sf) +
     geom_sf(aes(fill = .data[[fill_col]]), colour = "grey30", linewidth = 0.5) +
     scale_fill_viridis_c(option = "D", limits = fill_lims) +
+    coord_sf(xlim = xlim, ylim = ylim, expand = FALSE) +
     theme_void(base_size = 8) +
     theme(
       legend.position = "none",
       panel.border    = element_rect(colour = "black", fill = NA, linewidth = 0.8)
     )
 
-  # Overlay in the NW corner; coords are 0-1 relative to the map panel.
-  # Adjust left/bottom/right/top if the inset needs repositioning.
+  # NW corner; adjust right/bottom to resize the inset panel.
   p_rect + patchwork::inset_element(
     p_inset,
-    left = 0, bottom = 0.60, right = 0.35, top = 1.0,
+    left = 0, bottom = 0.72, right = 0.26, top = 1.0,
     align_to = "panel"
   )
 }
 
-m_pyr         <- add_bamako_inset(make_averted_map("pyr_averted",         "Pyr"),
-                                  "pyr_averted",         averted_rng)
-m_pyr_pbo     <- add_bamako_inset(make_averted_map("pyr_pbo_averted",     "Pyr-PBO"),
-                                  "pyr_pbo_averted",     averted_rng)
-m_pyr_cfp     <- add_bamako_inset(make_averted_map("pyr_cfp_averted",     "Pyr-CFP"),
-                                  "pyr_cfp_averted",     averted_rng)
-m_atn         <- add_bamako_inset(make_averted_map("atn_averted",         "ATN"),
-                                  "atn_averted",         averted_rng)
-m_pyr_atn     <- add_bamako_inset(make_averted_map("pyr_atn_averted",     "Pyr-ATN"),
-                                  "pyr_atn_averted",     averted_rng)
-m_pyr_cfp_atn <- add_bamako_inset(make_averted_map("pyr_cfp_atn_averted", "Pyr-CFP-ATN"),
-                                  "pyr_cfp_atn_averted", averted_rng)
+wrap_map <- function(p_main, fill_col, fill_lims) {
+  if (COUNTRY_ISO == "MLI") {
+    add_bamako_inset(p_main, fill_col, fill_lims)
+  } else {
+    p_main
+  }
+}
+
+m_pyr         <- wrap_map(make_averted_map("pyr_averted",         "Pyr"),
+                          "pyr_averted",         averted_rng)
+m_pyr_pbo     <- wrap_map(make_averted_map("pyr_pbo_averted",     "Pyr-PBO"),
+                          "pyr_pbo_averted",     averted_rng)
+m_pyr_cfp     <- wrap_map(make_averted_map("pyr_cfp_averted",     "Pyr-CFP"),
+                          "pyr_cfp_averted",     averted_rng)
+m_atn         <- wrap_map(make_averted_map("atn_averted",         "ATN"),
+                          "atn_averted",         averted_rng)
+m_pyr_atn     <- wrap_map(make_averted_map("pyr_atn_averted",     "Pyr-ATN"),
+                          "pyr_atn_averted",     averted_rng)
+m_pyr_cfp_atn <- wrap_map(make_averted_map("pyr_cfp_atn_averted", "Pyr-CFP-ATN"),
+                          "pyr_cfp_atn_averted", averted_rng)
 
 maps_caption <- paste0(
-  "'No future nets' = historical ITNs decaying from ", meta$future_yr0,
+  "'No nets' = historical ITNs decaying from ", meta$future_yr0,
   " with no replacements.\n",
   "All maps share the same fill scale. Net efficacy: Churcher 2024 median estimates.",
   excl_note
@@ -251,7 +297,52 @@ ggsave(out_maps, p_maps, width = 12, height = 8, dpi = 150)
 message(sprintf("Saved: %s", out_maps))
 
 # ---------------------------------------------------------------------
-# 5. Past-window consistency check
+# 6. % ATN-exposed mosquitoes over time (geofacet, ATN-bearing arms only)
+#    Summed across all species and all adult compartments (Sv + Ev + Iv).
+# ---------------------------------------------------------------------
+exp_cols <- grep("^(Sv|Ev|Iv)_exposed_",             names(df), value = TRUE)
+all_cols <- grep("^(Sv|Ev|Iv)_(exposed|unexposed)_", names(df), value = TRUE)
+
+atn_arms <- c("atn", "pyr_atn", "pyr_cfp_atn")
+
+df_exp <- df |>
+  filter(arm %in% atn_arms, year_rel >= -3) |>
+  mutate(
+    arm_f      = factor(arm_labels[arm], levels = arm_labels),
+    cal_year   = year_rel + meta$future_yr0,
+    mosq_exp   = rowSums(across(all_of(exp_cols))),
+    mosq_total = rowSums(across(all_of(all_cols))),
+    pct_exp    = if_else(mosq_total > 0, mosq_exp / mosq_total * 100, NA_real_)
+  ) |>
+  group_by(region, arm_f) |>
+  arrange(cal_year, .by_group = TRUE) |>
+  mutate(pct_exp_roll = zoo::rollmean(pct_exp, k = 365L, fill = NA, align = "center")) |>
+  ungroup()
+
+p_pct_exp <- ggplot(df_exp, aes(cal_year, pct_exp, colour = arm_f)) +
+  geom_vline(data = vline_df, aes(xintercept = xintercept),
+             linetype = "dashed", colour = "grey40", linewidth = 0.4) +
+  geom_line(linewidth = 0.4, alpha = 0.2) +
+  geom_line(aes(y = pct_exp_roll), linewidth = 0.8, na.rm = TRUE) +
+  scale_colour_manual(values = arm_cols) +
+  geofacet::facet_geo(~ region, grid = country_grid) +
+  theme_minimal(base_size = 11) +
+  labs(x = "Year",
+       y = "ATN-exposed adult mosquitoes (%)",
+       colour = "",
+       title   = paste0(country_name,
+                        " — % mosquitoes ATN-exposed by region (c24med)"),
+       caption = paste0(
+         "ATN-exposed = (Sv + Ev + Iv exposed) / total adult mosquitoes × 100,",
+         " summed across all species.\n",
+         "Thick line = 365-day rolling mean. Only ATN-bearing arms shown.", excl_note))
+
+out_exp <- sprintf("dev/outputs/%s_c24med_pct_atn_exposed.png", tolower(COUNTRY_ISO))
+ggsave(out_exp, p_pct_exp, width = 13, height = 9, dpi = 150)
+message(sprintf("Saved: %s", out_exp))
+
+# ---------------------------------------------------------------------
+# 7. Past-window consistency check
 # ---------------------------------------------------------------------
 past_check <- df |>
   filter(year_rel < 0) |>
@@ -265,4 +356,6 @@ if (any(past_check$n_distinct_pfpr > 1)) {
 
 print(p_prev)
 print(p_clin_series)
+print(p_bar)
 print(p_maps)
+print(p_pct_exp)
