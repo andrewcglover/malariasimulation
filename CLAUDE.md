@@ -378,23 +378,23 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   per-day (observer.reset() each step). The adult solver carries the much larger state in this
   fork (27 non-ATN, 135 ATN-on states vs upstream 3) — so "too much work" on an ATN run is
   most likely adult, not aquatic.
-- **IRS residual rs→1 bug (found + fixed 2026-06-22, `spray_reset_day` parameter).** The
-  `prob_spraying_repels` formula in `R/vector_control.R` has a wrong asymptote: as IRS
-  insecticide fully decays (`ms → 1` when `ms_gamma > 0` in the Mali site data), the formula
-  returns `rs = 1` (maximum repellency) instead of `rs = 0` (no IRS effect). Combined with the
-  absence of a `throw_away_spray` mechanism (unlike bednets which have `throw_away_net`),
-  historical IRS recipients keep their `spray_time` set forever. Result: any region with IRS
-  campaigns >7-8 years ago and no recent updates had ~50-60% of its population with `rs → 1` in
-  the future window, inflating Z from ~0.19 to ~0.69 and suppressing biting/ATN-exposure by
-  ~33%. **Ségou** (large IRS in 2012-2015, essentially zero since 2016) was worst-affected.
-  **Mopti** (active IRS through 2024) was unaffected because most recipients have recent
-  spray_times with partially-waned (not-yet-saturated) `ms`.
-  **Fix:** `parameters$spray_reset_day` (default NULL) — if set, a process fires at that
-  timestep and sets all `spray_time = -1`, clearing the historical IRS state before the future
-  window. In `dev/c24med_projection_run.R`, `build_params` sets
-  `p$spray_reset_day = future_start_day` whenever `future_interventions[['irs']] != TRUE`.
-  **Validation:** Z_gambiae for Ségou drops from 0.686 → 0.193 at t+1 (exactly matches
-  Q0×phi_bednets×rn_ATN = 0.92×0.85×0.24 ≈ 0.188); biting rate `a` recovers from 0.16 to 0.28
-  (matching Sikasso/Gao/Mopti). The fix must be applied BEFORE re-running the full 63-job sweep.
-  **Root cause note (upstream):** this is a pre-existing upstream malariasimulation bug — worth
-  flagging to mrc-ide. It affects any site with an old IRS programme that has since stopped.
+- **IRS DDT `ms_gamma` sign error in MLI site file (found 2026-06-22).** The `site`-package
+  MLI interventions table carries **`ms_gamma = +0.004` for every DDT IRS row (2000–2016)**
+  — wrong sign. Correct behaviour requires `ms_gamma < 0` so `ms = spraying_decay(t, θ, γ)`
+  decays to 0 as the insecticide wears off. With `+0.004`, `ms → 1` by ~5 yr, making
+  `prob_spraying_repels → 1` (maximum repellency) for any recipient whose `spray_time` was set
+  years ago — inflating Z and suppressing biting/ATN-exposure. Actellic rows (2017–2024) are
+  correct (`ms_gamma = −0.009`). All 9 MLI regions are affected (153/225 rows); **Ségou** is
+  worst (large DDT IRS 2008–2016, ~zero since 2016 → ~50-60% of pop with `rs → 1` in future
+  window; Z_gambiae 0.69 vs ~0.19 elsewhere). **Mopti** unaffected (actellic IRS 2017–2024,
+  correct sign). `spray_time` has no expiry mechanism (cf. bednets' `throw_away_net`), so
+  stale values persist indefinitely.
+  **Pipeline workaround:** `build_params()` in `dev/c24med_projection_run.R` applies
+  `ms_ext$interventions$ms_gamma <- -abs(ms_ext$interventions$ms_gamma)` immediately after
+  `expand_interventions()`, before `site::site_parameters()`. `-abs()` is idempotent (correct
+  actellic rows are unaffected). Does NOT mutate `dev/site_files/without_split/MLI.rds`.
+  **Provenance:** the IRS formula code (`spraying_decay`, `prob_spraying_repels`,
+  `prob_bitten` spraying block) is 100% upstream (Giovanni Charles 2020–21); the fork never
+  touched it. This is a site-data error, not a malariasimulation code bug.
+  **TODO:** raise the DDT `ms_gamma` sign error with the `site`-package maintainer; consider
+  an upstream warning in `set_spraying` for `ms_gamma > 0` (parked for now).

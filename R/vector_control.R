@@ -172,25 +172,6 @@ throw_away_nets <- function(variables) {
   }
 }
 
-#' @title Spray-time reset process
-#' @description At parameters$spray_reset_day, resets all spray_time values to
-#' -1, clearing historical IRS residuals from the future window. This fixes the
-#' rs→1 asymptote bug: the spraying_decay parameterisation for many African
-#' site files has ms_gamma>0 so ms→1 at long times, making
-#' prob_spraying_repels return 1 (maximum repellency) for anyone whose
-#' spray_time was set years ago and never cleared. Without this reset, every
-#' historical IRS recipient becomes fully repelled once their insecticide decays,
-#' inflating Z and suppressing biting for regions with old IRS programmes.
-#' @noRd
-spray_time_reset <- function(variables, parameters) {
-  reset_day <- parameters$spray_reset_day
-  function(timestep) {
-    if (timestep == reset_day) {
-      variables$spray_time$queue_update(-1, seq(parameters$human_population))
-    }
-  }
-}
-
 # =================
 # Utility functions
 # =================

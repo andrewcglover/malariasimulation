@@ -211,6 +211,14 @@ build_params <- function(region, arm) {
   ms       <- site::subset_site(site_obj, site_row)
 
   ms_ext <- expand_interventions(ms, expand_year = n_future_years)
+
+  # WORKAROUND (2026-06-22): the MLI site file has ms_gamma = +0.004 for all DDT
+  # IRS rows (2000-2016) — wrong sign, so deterrence rises to 1 instead of decaying
+  # to 0 (inflates Z, suppresses biting). actellic rows (2017+) are correct.
+  # Flip any positive ms_gamma to negative (magnitude preserved). Raise upstream
+  # with the site-file maintainer. -abs() is idempotent (correct rows unaffected).
+  ms_ext$interventions$ms_gamma <- -abs(ms_ext$interventions$ms_gamma)
+
   fut    <- ms_ext$interventions$year >= future_yr0
 
   net_zero_cols <- c("itn_input_dist", "itn_use")
@@ -283,15 +291,6 @@ build_params <- function(region, arm) {
     rnm       = matrix(rep(rnm, n_sp), ncol = n_sp),
     gamman    = gam
   )
-
-  # Fix: reset all spray_times to -1 at the start of the future window.
-  # Prevents the rs→1 asymptote bug: when IRS insecticide fully decays (ms→1
-  # with ms_gamma>0), prob_spraying_repels returns 1 for all old recipients,
-  # inflating Z and suppressing biting. Regions with old IRS (Ségou 2012-2015)
-  # are affected; regions with recent IRS (Mopti 2017-2024) are not (yet).
-  if (!isTRUE(future_interventions[['irs']])) {
-    p$spray_reset_day <- future_start_day
-  }
 
   p
 }

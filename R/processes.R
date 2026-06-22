@@ -325,13 +325,6 @@ create_processes <- function(
     )
   }
 
-  if (!is.null(parameters$spray_reset_day)) {
-    processes <- c(
-      processes,
-      spray_time_reset_process = spray_time_reset(variables, parameters)
-    )
-  }
-
   # ======================
   # Progress bar process
   # ======================

@@ -548,10 +548,6 @@ get_parameters <- function(overrides = list(), parasite = "falciparum") {
       a_tol = 1e-4,
       ode_max_steps = 1e6,
       progress_bar = FALSE,
-      # IRS spray_time reset: if non-NULL, all spray_times are set to -1 at this
-      # timestep, clearing residual historical IRS effects from the future window.
-      # Fixes the rs→1 asymptote bug for fully-decayed old IRS recipients.
-      spray_reset_day = NULL,
       # debug flags (ATN instrumentation in biting_process.R)
       atn_debug = FALSE
     )
