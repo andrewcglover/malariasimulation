@@ -346,7 +346,7 @@ if (isTRUE(getOption("country_test_mode"))) {
 grid_df <- expand.grid(region = regions, arm = arms, stringsAsFactors = FALSE)
 rows    <- split(grid_df, seq_len(nrow(grid_df)))
 
-cl <- parallel::makeCluster(N_CORES)
+cl <- parallel::makeCluster(N_CORES, setup_strategy = "sequential", outfile = "")
 on.exit(parallel::stopCluster(cl), add = TRUE)
 
 parallel::clusterExport(cl, "FORK_PATH")
