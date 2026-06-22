@@ -202,6 +202,19 @@ simulate_bites <- function(
       )
     } else {
       kernels <- compute_atn_kernels(timestep, parameters, foim, s_i)
+      if (isTRUE(parameters$atn_debug)) {
+        # Diagnostic: render the exact per-species inputs to the ATN exposure
+        # pathway so a region's exposed fraction can be reconciled with av_da.
+        # (a, W, Z, delta_atn, contact_factor, av_da; f/foim/mu already rendered.)
+        av_da <- a * kernels$delta_atn * kernels$contact_factor
+        renderer$render(paste0('dbg_a_', species_name),              a,                      timestep)
+        renderer$render(paste0('dbg_W_', species_name),              W,                      timestep)
+        renderer$render(paste0('dbg_Z_', species_name),              Z,                      timestep)
+        renderer$render(paste0('dbg_f_', species_name),              f,                      timestep)
+        renderer$render(paste0('dbg_delta_atn_', species_name),      kernels$delta_atn,      timestep)
+        renderer$render(paste0('dbg_contact_factor_', species_name), kernels$contact_factor, timestep)
+        renderer$render(paste0('dbg_av_da_', species_name),          av_da,                  timestep)
+      }
       adult_mosquito_model_update(
         models[[s_i]]$.model,
         mu,
