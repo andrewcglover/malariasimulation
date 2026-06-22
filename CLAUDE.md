@@ -378,3 +378,23 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   per-day (observer.reset() each step). The adult solver carries the much larger state in this
   fork (27 non-ATN, 135 ATN-on states vs upstream 3) — so "too much work" on an ATN run is
   most likely adult, not aquatic.
+- **IRS residual rs→1 bug (found + fixed 2026-06-22, `spray_reset_day` parameter).** The
+  `prob_spraying_repels` formula in `R/vector_control.R` has a wrong asymptote: as IRS
+  insecticide fully decays (`ms → 1` when `ms_gamma > 0` in the Mali site data), the formula
+  returns `rs = 1` (maximum repellency) instead of `rs = 0` (no IRS effect). Combined with the
+  absence of a `throw_away_spray` mechanism (unlike bednets which have `throw_away_net`),
+  historical IRS recipients keep their `spray_time` set forever. Result: any region with IRS
+  campaigns >7-8 years ago and no recent updates had ~50-60% of its population with `rs → 1` in
+  the future window, inflating Z from ~0.19 to ~0.69 and suppressing biting/ATN-exposure by
+  ~33%. **Ségou** (large IRS in 2012-2015, essentially zero since 2016) was worst-affected.
+  **Mopti** (active IRS through 2024) was unaffected because most recipients have recent
+  spray_times with partially-waned (not-yet-saturated) `ms`.
+  **Fix:** `parameters$spray_reset_day` (default NULL) — if set, a process fires at that
+  timestep and sets all `spray_time = -1`, clearing the historical IRS state before the future
+  window. In `dev/c24med_projection_run.R`, `build_params` sets
+  `p$spray_reset_day = future_start_day` whenever `future_interventions[['irs']] != TRUE`.
+  **Validation:** Z_gambiae for Ségou drops from 0.686 → 0.193 at t+1 (exactly matches
+  Q0×phi_bednets×rn_ATN = 0.92×0.85×0.24 ≈ 0.188); biting rate `a` recovers from 0.16 to 0.28
+  (matching Sikasso/Gao/Mopti). The fix must be applied BEFORE re-running the full 63-job sweep.
+  **Root cause note (upstream):** this is a pre-existing upstream malariasimulation bug — worth
+  flagging to mrc-ide. It affects any site with an old IRS programme that has since stopped.

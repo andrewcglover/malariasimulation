@@ -283,6 +283,16 @@ build_params <- function(region, arm) {
     rnm       = matrix(rep(rnm, n_sp), ncol = n_sp),
     gamman    = gam
   )
+
+  # Fix: reset all spray_times to -1 at the start of the future window.
+  # Prevents the rs→1 asymptote bug: when IRS insecticide fully decays (ms→1
+  # with ms_gamma>0), prob_spraying_repels returns 1 for all old recipients,
+  # inflating Z and suppressing biting. Regions with old IRS (Ségou 2012-2015)
+  # are affected; regions with recent IRS (Mopti 2017-2024) are not (yet).
+  if (!isTRUE(future_interventions[['irs']])) {
+    p$spray_reset_day <- future_start_day
+  }
+
   p
 }
 
