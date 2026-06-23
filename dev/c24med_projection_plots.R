@@ -1,11 +1,11 @@
 # =====================================================================
 # c24med_projection_plots.R
-#   Reads dev/outputs/<iso>_c24med_projection_results.rds and produces:
+#   Reads dev/outputs/<iso>_c24med_projection_results_hl<tag>.rds and produces:
 #     (1) prevalence / incidence geofacet timeseries
 #     (2) cases-averted vs no-nets bar chart (geofacet)
 #     (3) cases-averted choropleths (6 arms, 2x3 layout)
 #     (4) % ATN-exposed mosquitoes geofacet (ATN-bearing arms only)
-#   Change COUNTRY_ISO to plot any available c24med run.
+#   Change COUNTRY_ISO / HL_TAG to plot any available c24med run.
 # =====================================================================
 
 library(dplyr); library(tidyr); library(ggplot2); library(zoo)
@@ -15,7 +15,9 @@ library(sf); library(patchwork)
 # 0. Config
 # ---------------------------------------------------------------------
 COUNTRY_ISO  <- "MLI"
-RESULTS_FILE <- sprintf("dev/outputs/%s_c24med_projection_results.rds", tolower(COUNTRY_ISO))
+HL_TAG       <- "hl2p64"
+RESULTS_FILE <- sprintf("dev/outputs/%s_c24med_projection_results_%s.rds",
+                        tolower(COUNTRY_ISO), HL_TAG)
 SITE_FILE    <- sprintf("dev/site_files/without_split/%s.rds", COUNTRY_ISO)
 
 obj   <- readRDS(RESULTS_FILE)
@@ -23,8 +25,7 @@ df    <- obj$results
 shape <- obj$shape
 meta  <- obj$meta
 
-country_name <- if (!is.null(meta$country_name)) meta$country_name else COUNTRY_ISO
-SHAPE_KEY    <- "name_1"
+SHAPE_KEY <- "name_1"
 
 # ---------------------------------------------------------------------
 # 1. Colour assignments — Paul Tol "muted" qualitative palette
@@ -55,9 +56,9 @@ arm_labels <- c(
 
 arm_cols <- c(
   "No nets"       = "#DDDDDD",  # pale   — no intervention baseline
-  "Pyr"           = "#DDCC77",  # sand
+  "Pyr"           = "#882255",  # wine
   "Pyr-PBO"       = "#CC6677",  # rose
-  "Pyr-CFP"       = "#882255",  # wine
+  "Pyr-CFP"       = "#DDCC77",  # sand
   "ATN"           = "#117733",  # green
   "Pyr-ATN"       = "#44AA99",  # teal
   "Pyr-CFP-ATN"   = "#88CCEE"   # cyan
@@ -70,28 +71,21 @@ df_win <- df |>
   filter(year_rel >= 0, year_rel <= meta$n_future_years) |>
   mutate(arm_f = factor(arm_labels[arm], levels = arm_labels))
 
-missing_regions <- setdiff(shape[[SHAPE_KEY]], unique(df$region))
-excl_note <- if (length(missing_regions) > 0L) {
-  paste0(" Excluded (no successful run): ", paste(missing_regions, collapse = ", "), ".")
-} else {
-  ""
-}
+present_regions  <- unique(df_win$region)
+missing_regions  <- setdiff(shape[[SHAPE_KEY]], present_regions)
 
 country_grid_raw <- geofacet::grid_auto(shape, names = SHAPE_KEY, seed = 1)
 names(country_grid_raw)[names(country_grid_raw) == paste0("name_", SHAPE_KEY)] <- "name"
 country_grid_raw$code <- country_grid_raw$name
-present_regions <- unique(df_win$region)
 country_grid <- country_grid_raw[country_grid_raw$code %in% present_regions,
                                  c("row", "col", "code", "name")]
 
-vline_df     <- data.frame(xintercept = meta$future_yr0)
-base_caption <- paste0(
-  "Dashed line = future distribution start (", meta$future_yr0, ").",
-  " Thick line = 365-day rolling mean.\n",
-  "'No nets': historical ITNs only, decaying from ", meta$future_yr0,
-  " (no new distributions).", excl_note,
-  "\nNet efficacy: Churcher 2024 median estimates."
-)
+vline_df <- data.frame(xintercept = meta$future_yr0)
+
+# output filename helper
+out_file <- function(suffix) {
+  sprintf("dev/outputs/%s_c24med_%s_%s.png", tolower(COUNTRY_ISO), suffix, HL_TAG)
+}
 
 # ---------------------------------------------------------------------
 # 3. Geofacet timeseries — prevalence & clinical incidence
@@ -118,13 +112,10 @@ p_prev <- ggplot(df_plot, aes(cal_year, pfpr2to10 * 100, colour = arm_f)) +
   geom_line(aes(y = pfpr_roll), linewidth = 0.8, na.rm = TRUE) +
   scale_colour_manual(values = arm_cols) +
   geofacet::facet_geo(~ region, grid = country_grid) +
-  theme_minimal(base_size = 11) +
+  theme_minimal(base_size = 15) +
   labs(x = "Year",
        y = expression(italic(Pf) * PR[2 - 10] * " (%)"),
-       colour = "",
-       title   = paste0(country_name,
-                        " — projected prevalence by region and future net scenario (c24med)"),
-       caption = base_caption)
+       colour = "")
 
 p_clin_series <- ggplot(df_plot, aes(cal_year, clin_rate, colour = arm_f)) +
   geom_vline(data = vline_df, aes(xintercept = xintercept),
@@ -133,19 +124,14 @@ p_clin_series <- ggplot(df_plot, aes(cal_year, clin_rate, colour = arm_f)) +
   geom_line(aes(y = clin_rate_roll), linewidth = 0.8, na.rm = TRUE) +
   scale_colour_manual(values = arm_cols) +
   geofacet::facet_geo(~ region, grid = country_grid) +
-  theme_minimal(base_size = 11) +
+  theme_minimal(base_size = 15) +
   labs(x = "Year",
        y = "Clinical incidence (per 1,000 / day, all ages)",
-       colour = "",
-       title   = paste0(country_name,
-                        " — projected clinical incidence by region and future net scenario (c24med)"),
-       caption = base_caption)
+       colour = "")
 
-out_prev <- sprintf("dev/outputs/%s_c24med_prevalence_facet.png",  tolower(COUNTRY_ISO))
-out_clin <- sprintf("dev/outputs/%s_c24med_incidence_facet.png",   tolower(COUNTRY_ISO))
-ggsave(out_prev, p_prev,         width = 13, height = 9, dpi = 150)
-ggsave(out_clin, p_clin_series,  width = 13, height = 9, dpi = 150)
-message(sprintf("Saved: %s, %s", out_prev, out_clin))
+ggsave(out_file("prevalence_facet"), p_prev,        width = 13, height = 9, dpi = 300)
+ggsave(out_file("incidence_facet"),  p_clin_series, width = 13, height = 9, dpi = 300)
+message(sprintf("Saved: %s, %s", out_file("prevalence_facet"), out_file("incidence_facet")))
 
 # ---------------------------------------------------------------------
 # 4. Bar chart — cases averted vs no-nets (geofacet)
@@ -178,25 +164,17 @@ p_bar <- ggplot(averted_long, aes(x = arm_f, y = averted, fill = arm_f)) +
   geom_hline(yintercept = 0, linewidth = 0.3, colour = "grey40") +
   scale_fill_manual(values = arm_cols) +
   geofacet::facet_geo(~ region, grid = country_grid, scales = "fixed") +
-  theme_minimal(base_size = 10) +
+  theme_minimal(base_size = 14) +
   theme(
     axis.text.x     = element_blank(),
     axis.ticks.x    = element_blank(),
     legend.position = "bottom"
   ) +
   guides(fill = guide_legend(nrow = 1)) +
-  labs(x = "", y = "Cases averted vs no nets (per 1,000 / yr)",
-       fill    = "",
-       title   = paste0(country_name,
-                        " — clinical cases averted over ", meta$n_future_years,
-                        "-yr projection (c24med)"),
-       caption = paste0("Cases averted vs 'no nets' arm, averaged over the ",
-                        meta$n_future_years, "-yr future window.\n",
-                        "Net efficacy: Churcher 2024 median estimates.", excl_note))
+  labs(x = "", y = "Cases averted vs no nets (per 1,000 / yr)", fill = "")
 
-out_bar <- sprintf("dev/outputs/%s_c24med_averted_bar.png", tolower(COUNTRY_ISO))
-ggsave(out_bar, p_bar, width = 13, height = 9, dpi = 150)
-message(sprintf("Saved: %s", out_bar))
+ggsave(out_file("averted_bar"), p_bar, width = 13, height = 9, dpi = 300)
+message(sprintf("Saved: %s", out_file("averted_bar")))
 
 # ---------------------------------------------------------------------
 # 5. Averted choropleths (2 x 3), with Bamako inset for MLI only
@@ -211,24 +189,26 @@ make_averted_map <- function(fill_col, title) {
   ggplot(map_df) +
     geom_sf(aes(fill = .data[[fill_col]]), colour = "white", linewidth = 0.2) +
     scale_fill_viridis_c(option = "D", limits = averted_rng) +
-    theme_void(base_size = 10) +
+    theme_void(base_size = 14) +
     labs(title = title, fill = "Averted /\n1,000 / yr")
 }
 
 # Bamako inset — only applied for MLI (where Bamako is the small capital district).
 # For other countries, make_averted_map() output is used directly.
-# expand_inset controls both the rectangle on the main map and the coord limits
-# of the inset, so they match exactly. Adjust to taste.
+# Padding is 30% of Bamako's own width/height so the rectangle on the main map
+# and the inset zoom window have the same proportional margin around the district.
 # Inset panel position: left/bottom/right/top in 0-1 npc relative to map panel.
 add_bamako_inset <- function(p_main, fill_col, fill_lims) {
-  bamako_sf    <- map_df[map_df[[SHAPE_KEY]] == "Bamako", ]
-  bb           <- sf::st_bbox(bamako_sf)
-  expand_inset <- 0.15   # degrees; controls both rectangle size and inset zoom
+  bamako_sf <- map_df[map_df[[SHAPE_KEY]] == "Bamako", ]
+  bb        <- sf::st_bbox(bamako_sf)
 
-  xlim <- c(bb["xmin"] - expand_inset, bb["xmax"] + expand_inset)
-  ylim <- c(bb["ymin"] - expand_inset, bb["ymax"] + expand_inset)
+  pad_frac <- 0.30   # 30% of Bamako's own extent on each side
+  expand_x <- as.numeric(bb["xmax"] - bb["xmin"]) * pad_frac
+  expand_y <- as.numeric(bb["ymax"] - bb["ymin"]) * pad_frac
 
-  # Modify bbox to draw the matching rectangle on the main map.
+  xlim <- c(bb["xmin"] - expand_x, bb["xmax"] + expand_x)
+  ylim <- c(bb["ymin"] - expand_y, bb["ymax"] + expand_y)
+
   bb["xmin"] <- xlim[1]; bb["xmax"] <- xlim[2]
   bb["ymin"] <- ylim[1]; bb["ymax"] <- ylim[2]
   bb_rect <- sf::st_as_sfc(bb)
@@ -237,18 +217,16 @@ add_bamako_inset <- function(p_main, fill_col, fill_lims) {
     geom_sf(data = bb_rect, fill = NA, colour = "black",
             linewidth = 0.7, inherit.aes = FALSE)
 
-  # Inset zoomed to exactly the same extent as the rectangle.
   p_inset <- ggplot(bamako_sf) +
     geom_sf(aes(fill = .data[[fill_col]]), colour = "grey30", linewidth = 0.5) +
     scale_fill_viridis_c(option = "D", limits = fill_lims) +
     coord_sf(xlim = xlim, ylim = ylim, expand = FALSE) +
-    theme_void(base_size = 8) +
+    theme_void(base_size = 11) +
     theme(
       legend.position = "none",
       panel.border    = element_rect(colour = "black", fill = NA, linewidth = 0.8)
     )
 
-  # NW corner; adjust right/bottom to resize the inset panel.
   p_rect + patchwork::inset_element(
     p_inset,
     left = 0, bottom = 0.72, right = 0.26, top = 1.0,
@@ -264,37 +242,19 @@ wrap_map <- function(p_main, fill_col, fill_lims) {
   }
 }
 
-m_pyr         <- wrap_map(make_averted_map("pyr_averted",         "Pyr"),
-                          "pyr_averted",         averted_rng)
-m_pyr_pbo     <- wrap_map(make_averted_map("pyr_pbo_averted",     "Pyr-PBO"),
-                          "pyr_pbo_averted",     averted_rng)
-m_pyr_cfp     <- wrap_map(make_averted_map("pyr_cfp_averted",     "Pyr-CFP"),
-                          "pyr_cfp_averted",     averted_rng)
-m_atn         <- wrap_map(make_averted_map("atn_averted",         "ATN"),
-                          "atn_averted",         averted_rng)
-m_pyr_atn     <- wrap_map(make_averted_map("pyr_atn_averted",     "Pyr-ATN"),
-                          "pyr_atn_averted",     averted_rng)
-m_pyr_cfp_atn <- wrap_map(make_averted_map("pyr_cfp_atn_averted", "Pyr-CFP-ATN"),
-                          "pyr_cfp_atn_averted", averted_rng)
-
-maps_caption <- paste0(
-  "'No nets' = historical ITNs decaying from ", meta$future_yr0,
-  " with no replacements.\n",
-  "All maps share the same fill scale. Net efficacy: Churcher 2024 median estimates.",
-  excl_note
-)
+m_pyr         <- wrap_map(make_averted_map("pyr_averted",         "Pyr"),         "pyr_averted",         averted_rng)
+m_pyr_pbo     <- wrap_map(make_averted_map("pyr_pbo_averted",     "Pyr-PBO"),     "pyr_pbo_averted",     averted_rng)
+m_pyr_cfp     <- wrap_map(make_averted_map("pyr_cfp_averted",     "Pyr-CFP"),     "pyr_cfp_averted",     averted_rng)
+m_atn         <- wrap_map(make_averted_map("atn_averted",         "ATN"),         "atn_averted",         averted_rng)
+m_pyr_atn     <- wrap_map(make_averted_map("pyr_atn_averted",     "Pyr-ATN"),     "pyr_atn_averted",     averted_rng)
+m_pyr_cfp_atn <- wrap_map(make_averted_map("pyr_cfp_atn_averted", "Pyr-CFP-ATN"), "pyr_cfp_atn_averted", averted_rng)
 
 p_maps <- (m_pyr | m_pyr_pbo | m_pyr_cfp) / (m_atn | m_pyr_atn | m_pyr_cfp_atn) +
-  patchwork::plot_annotation(
-    title   = paste0(country_name,
-                     " — clinical cases averted vs no-nets over ", meta$n_future_years,
-                     "-year projection (per 1,000 pop / yr, c24med)"),
-    caption = maps_caption
-  )
+  patchwork::plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
 
-out_maps <- sprintf("dev/outputs/%s_c24med_averted_maps.png", tolower(COUNTRY_ISO))
-ggsave(out_maps, p_maps, width = 12, height = 8, dpi = 150)
-message(sprintf("Saved: %s", out_maps))
+ggsave(out_file("averted_maps"), p_maps, width = 12, height = 9, dpi = 300)
+message(sprintf("Saved: %s", out_file("averted_maps")))
 
 # ---------------------------------------------------------------------
 # 6. % ATN-exposed mosquitoes over time (geofacet, ATN-bearing arms only)
@@ -326,20 +286,13 @@ p_pct_exp <- ggplot(df_exp, aes(cal_year, pct_exp, colour = arm_f)) +
   geom_line(aes(y = pct_exp_roll), linewidth = 0.8, na.rm = TRUE) +
   scale_colour_manual(values = arm_cols) +
   geofacet::facet_geo(~ region, grid = country_grid) +
-  theme_minimal(base_size = 11) +
+  theme_minimal(base_size = 15) +
   labs(x = "Year",
        y = "ATN-exposed adult mosquitoes (%)",
-       colour = "",
-       title   = paste0(country_name,
-                        " — % mosquitoes ATN-exposed by region (c24med)"),
-       caption = paste0(
-         "ATN-exposed = (Sv + Ev + Iv exposed) / total adult mosquitoes × 100,",
-         " summed across all species.\n",
-         "Thick line = 365-day rolling mean. Only ATN-bearing arms shown.", excl_note))
+       colour = "")
 
-out_exp <- sprintf("dev/outputs/%s_c24med_pct_atn_exposed.png", tolower(COUNTRY_ISO))
-ggsave(out_exp, p_pct_exp, width = 13, height = 9, dpi = 150)
-message(sprintf("Saved: %s", out_exp))
+ggsave(out_file("pct_atn_exposed"), p_pct_exp, width = 13, height = 9, dpi = 300)
+message(sprintf("Saved: %s", out_file("pct_atn_exposed")))
 
 # ---------------------------------------------------------------------
 # 7. Past-window consistency check
