@@ -300,9 +300,20 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
   # lambda_atn is NULL when no set_bednets call has been made (no nets at all);
   # fall back to 0 (no waning) in that case.
   lambda_atn <- if (is.null(parameters$lambda_atn)) 0 else parameters$lambda_atn
+
+  # Non-drug displacement events (e.g. Pyr-CFP mass campaigns in a mixed-delivery arm):
+  # they overwrite ATN holders in the IBM but deliver no antimalarial, so they must
+  # reduce Q_atn_t via repl_factor without contributing to Q_each.
+  # Default atn_displace_t0/Q0 = numeric(0) => no displacement => existing arms unchanged.
+  disp_t0 <- parameters$atn_displace_t0
+  disp_Q0 <- parameters$atn_displace_Q0
+
   repl_factor <- vapply(seq_len(n), function(i) {
-    later <- which(t0 > t0[i] & t0 <= timestep)
-    prod(1 - Q0[later])
+    # drug events later than this one that have fired
+    later_drug <- which(t0 > t0[i] & t0 <= timestep)
+    # non-drug displacement events later than this drug event that have fired
+    later_disp <- which(disp_t0 > t0[i] & disp_t0 <= timestep)
+    prod(1 - Q0[later_drug]) * prod(1 - disp_Q0[later_disp])
   }, numeric(1))
   Q_each <- ifelse(timestep < t0, 0,
               Q0 * exp(-lambda_atn * (timestep - t0)) * repl_factor)

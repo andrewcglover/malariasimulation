@@ -483,6 +483,12 @@ get_parameters <- function(overrides = list(), parasite = "falciparum") {
       # Per-event vectors (length n_atn)
       t0_atn   = 0,      # day of each distribution event (chronological)
       Q0_atn   = 0,      # initial coverage of each event
+      # Non-drug displacement events: non-ATN net campaigns that overwrite ATN holders'
+      # net_time in the IBM but deliver no antimalarial.  These enter repl_factor so
+      # Q_atn_t collapses correctly at each campaign.  Default empty = no displacement
+      # = all existing arms bit-identical to pre-change behaviour.
+      atn_displace_t0 = numeric(0),  # timesteps of overwriting non-drug distributions
+      atn_displace_Q0 = numeric(0),  # their coverages
       # Coverage and potency decay
       lambda_atn = NULL, # ATN coverage retention decay rate; NULL = auto-derive as
                          # 1/bednet_retention once set_bednets is called

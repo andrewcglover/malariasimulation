@@ -333,6 +333,20 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   has `rn ≈ rnm` so `rn_chem ≈ 0`, and non-ATN arms have `delta_atn = 0`). R-only change — no C++
   recompile. Pipeline: `dev/c24med_projection_run.R` exposes it via env var `ATN_CHEM_DOSE`
   (+ `SWEEP_ARMS` to subset arms); `OUT_FILE` gains a `_chem{tag}` suffix when `f > 0`.
+- **`atn_displace_t0` / `atn_displace_Q0` — non-drug displacement events (added 2026-06-23).**
+  Supports mixed-delivery arms where a **non-drug net (e.g. Pyr-CFP mass campaign)** overwrites
+  ATN holders in the IBM, causing `Q_atn_t` to collapse at each campaign. These parameters list
+  the timesteps and coverages of such overwriting distributions; they enter `repl_factor` in
+  `compute_atn_kernels` (`R/biting_process.R`) as `prod(1 − Q0_displace)` but contribute **nothing**
+  to `Q_each`. Default `numeric(0)` (empty) → all existing arms bit-identical to pre-change
+  behaviour. R-only, no C++ recompile. Used by the `pyr_cfp_mc_atn_cd` arm (see §12g tests,
+  `dev/c24med_projection_run.R:build_params`). Key design points:
+  - Only events **strictly later** than the drug event `i` and fired by `timestep` reduce its
+    `repl_factor`; earlier displacement events do NOT reduce later drug events (correct chronology).
+  - `cd_cov` / `cd_floor` math is **unchanged** — it defines the inter-campaign top-up target
+    regardless of what product campaigns distribute. The sawtooth (build via CD → collapse at MC
+    → rebuild) falls out naturally once `Q_atn_t` sees the displacement events.
+  - `contact_factor`, `lambda_atn` decay, `delta_atn`, Hill/Bompard kernels, C++ ODE: all unaffected.
 
 ## 11. Mali projection pipeline (dev/mali_projection_run.R, confirmed 2026-06-17)
 

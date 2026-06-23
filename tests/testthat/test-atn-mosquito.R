@@ -415,3 +415,79 @@ test_that('compute_atn_kernels: contact_factor decays toward 1/(1-rnm) as Pyr-AT
   k <- compute_atn_kernels(600L, parameters, parameters$init_foim, 1L)
   expect_equal(k$contact_factor, 1 / (1 - rnm_val), tolerance = 1e-6)
 })
+
+# ── §12g: displacement events (atn_displace_t0/Q0) ───────────────────────────
+
+test_that('compute_atn_kernels: empty displacement vectors leave existing arms unchanged', {
+  # Backward-compatibility: atn_displace_t0/Q0 default to numeric(0).
+  # A pyr_cfp_atn-style config with no displacement should give exactly the
+  # same repl_factor as before the parameter was introduced.
+  parameters <- get_parameters(list(
+    p_atn = 0.9, n_atn = 2L,
+    t0_atn  = c(100L, 400L),
+    Q0_atn  = c(0.8, 0.3),
+    lambda_atn = 0
+    # atn_displace_t0/Q0 intentionally omitted -> default numeric(0)
+  ))
+  parameters <- set_equilibrium(parameters, 50.)
+  # Before either drug event fires: Q_t = 0, delta_atn = 0
+  k_before <- compute_atn_kernels(50L, parameters, parameters$init_foim, 1L)
+  expect_equal(k_before$delta_atn, 0)
+  # Between the two drug events: only event 1 active; no displacement yet
+  k_mid <- compute_atn_kernels(300L, parameters, parameters$init_foim, 1L)
+  expect_equal(k_mid$delta_atn,
+               parameters$p_atn * parameters$phi_bednets[[1]] * 0.8,
+               tolerance = 1e-9)
+  # After both drug events: Q_t = Q0[1]*(1-Q0[2]) + Q0[2] (no displacement)
+  k_after <- compute_atn_kernels(500L, parameters, parameters$init_foim, 1L)
+  Q_expected <- 0.8 * (1 - 0.3) + 0.3
+  expect_equal(k_after$delta_atn,
+               parameters$p_atn * parameters$phi_bednets[[1]] * Q_expected,
+               tolerance = 1e-9)
+})
+
+test_that('compute_atn_kernels: displacement event collapses Q_atn_t correctly', {
+  # One ATN CD event (t=100, Q0=0.8) followed by one non-drug displacement (t=300, Q0=0.9).
+  # Before t=300:  repl_factor for event 1 = 1 (no later events fired yet).
+  # After  t=300:  repl_factor for event 1 = (1 - 0.9) = 0.1.
+  parameters <- get_parameters(list(
+    p_atn           = 0.9,
+    n_atn           = 1L,
+    t0_atn          = 100L,
+    Q0_atn          = 0.8,
+    lambda_atn      = 0,
+    atn_displace_t0 = 300L,
+    atn_displace_Q0 = 0.9
+  ))
+  parameters <- set_equilibrium(parameters, 50.)
+  phi <- parameters$phi_bednets[[1]]
+
+  # Timestep 200: drug event active, displacement not yet fired -> Q_t = 0.8
+  k_pre <- compute_atn_kernels(200L, parameters, parameters$init_foim, 1L)
+  expect_equal(k_pre$delta_atn, parameters$p_atn * phi * 0.8, tolerance = 1e-9)
+
+  # Timestep 400: displacement has fired -> repl_factor[1] = (1 - 0.9) = 0.1
+  k_post <- compute_atn_kernels(400L, parameters, parameters$init_foim, 1L)
+  expect_equal(k_post$delta_atn, parameters$p_atn * phi * 0.8 * 0.1, tolerance = 1e-9)
+})
+
+test_that('compute_atn_kernels: CD event after displacement is unaffected by that displacement', {
+  # Displacement at t=200 must NOT reduce a drug CD event that fires at t=300
+  # (displacement is chronologically earlier than the drug event).
+  parameters <- get_parameters(list(
+    p_atn           = 0.9,
+    n_atn           = 1L,
+    t0_atn          = 300L,
+    Q0_atn          = 0.5,
+    lambda_atn      = 0,
+    atn_displace_t0 = 200L,
+    atn_displace_Q0 = 0.9
+  ))
+  parameters <- set_equilibrium(parameters, 50.)
+  phi <- parameters$phi_bednets[[1]]
+
+  # Timestep 400: drug event active; displacement at t=200 is EARLIER, so not in
+  # "later" set for event 1 -> repl_factor[1] = 1 -> Q_t = 0.5
+  k <- compute_atn_kernels(400L, parameters, parameters$init_foim, 1L)
+  expect_equal(k$delta_atn, parameters$p_atn * phi * 0.5, tolerance = 1e-9)
+})

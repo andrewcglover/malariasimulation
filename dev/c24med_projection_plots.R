@@ -45,23 +45,25 @@ SHAPE_KEY <- "name_1"
 #  Arm assignments (adjust hex codes here to remap colours):
 # ---------------------------------------------------------------------
 arm_labels <- c(
-  none        = "No nets",
-  pyr         = "Pyr",
-  pyr_pbo     = "Pyr-PBO",
-  pyr_cfp     = "Pyr-CFP",
-  atn         = "ATN",
-  pyr_atn     = "Pyr-ATN",
-  pyr_cfp_atn = "Pyr-CFP-ATN"
+  none              = "No nets",
+  pyr               = "Pyr",
+  pyr_pbo           = "Pyr-PBO",
+  pyr_cfp           = "Pyr-CFP",
+  atn               = "ATN",
+  pyr_atn           = "Pyr-ATN",
+  pyr_cfp_atn       = "Pyr-CFP-ATN",
+  pyr_cfp_mc_atn_cd = "Pyr-CFP MC, ATN CD"
 )
 
 arm_cols <- c(
-  "No nets"       = "#DDDDDD",  # pale   — no intervention baseline
-  "Pyr"           = "#882255",  # wine
-  "Pyr-PBO"       = "#CC6677",  # rose
-  "Pyr-CFP"       = "#DDCC77",  # sand
-  "ATN"           = "#117733",  # green
-  "Pyr-ATN"       = "#44AA99",  # teal
-  "Pyr-CFP-ATN"   = "#88CCEE"   # cyan
+  "No nets"           = "#DDDDDD",  # pale   — no intervention baseline
+  "Pyr"               = "#882255",  # wine
+  "Pyr-PBO"           = "#CC6677",  # rose
+  "Pyr-CFP"           = "#DDCC77",  # sand
+  "ATN"               = "#117733",  # green
+  "Pyr-ATN"           = "#44AA99",  # teal
+  "Pyr-CFP-ATN"       = "#88CCEE",  # cyan
+  "Pyr-CFP MC, ATN CD" = "#AA4499"  # purple
 )
 
 # ---------------------------------------------------------------------

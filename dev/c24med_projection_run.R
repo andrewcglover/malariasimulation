@@ -64,8 +64,9 @@ N_CORES <- if (nchar(sweep_cores_env) > 0L) {
 
 human_pop      <- 100000L
 n_future_years <- 6L
-arms           <- c("none", "pyr", "pyr_pbo", "pyr_cfp", "atn", "pyr_atn", "pyr_cfp_atn")
-# SWEEP_ARMS: comma-separated subset to run (default = all 7). Used for the chem-dose sensitivity
+arms           <- c("none", "pyr", "pyr_pbo", "pyr_cfp", "atn", "pyr_atn", "pyr_cfp_atn",
+                    "pyr_cfp_mc_atn_cd")
+# SWEEP_ARMS: comma-separated subset to run (default = all 8). Used for the chem-dose sensitivity
 # sweep, which only needs the affected arms (pyr_atn,pyr_cfp_atn).
 sweep_arms_env <- Sys.getenv("SWEEP_ARMS", "")
 if (nzchar(sweep_arms_env)) {
@@ -215,6 +216,22 @@ build_future_schedule <- function(arm, region) {
     rn  <- rep(0.24, n)
     rnm <- rep(0.24 - 1e-9, n)
     gam <- rep(ANTIMAL_HL_DAYS, n)
+  } else if (arm == "pyr_cfp_mc_atn_cd") {
+    # Mixed-delivery: Pyr-CFP (insecticidal) for mass-campaign rows;
+    # non-insecticidal ATN for CD top-up rows.
+    p_list_mc <- lapply(res_grid[is_camp], function(r) med_net(cfp_pars, r))
+    dn0 <- rn <- gam <- numeric(n)
+    rnm <- numeric(n)
+    # MC rows: Pyr-CFP efficacy, resistance-projected
+    dn0[is_camp]  <- vapply(p_list_mc, `[[`, numeric(1), "dn0")
+    rn [is_camp]  <- vapply(p_list_mc, `[[`, numeric(1), "rn0")
+    rnm[is_camp]  <- 0.24
+    gam[is_camp]  <- vapply(p_list_mc, `[[`, numeric(1), "gamman")
+    # CD rows: non-insecticidal ATN
+    dn0[!is_camp] <- 0
+    rn [!is_camp] <- 0.24
+    rnm[!is_camp] <- 0.24 - 1e-9
+    gam[!is_camp] <- ANTIMAL_HL_DAYS
   } else {
     # Select the appropriate Churcher 2024 efficacy table for this arm.
     # pyr_atn uses pyr-only params; pyr_cfp_atn uses cfp params.
@@ -231,7 +248,8 @@ build_future_schedule <- function(arm, region) {
     rnm    <- rep(0.24, n)
     gam    <- vapply(p_list, `[[`, numeric(1), "gamman")
   }
-  list(timesteps = grid, coverages = cov, dn0 = dn0, rn = rn, rnm = rnm, gam = gam)
+  list(timesteps = grid, coverages = cov, dn0 = dn0, rn = rn, rnm = rnm, gam = gam,
+       is_camp = is_camp)
 }
 
 # ---------------------------------------------------------------------
@@ -288,6 +306,27 @@ build_params <- function(region, arm) {
       Q0_atn        = fsch$coverages,
       t0_atn        = fsch$timesteps,
       n_atn         = length(fsch$timesteps)
+    ), atn_kern)
+  } else if (arm == "pyr_cfp_mc_atn_cd") {
+    # Mixed-delivery: drug events = CD rows only; MC rows are non-drug displacement
+    # events that overwrite ATN holders in the IBM but deliver no antimalarial.
+    # atn_displace_t0/Q0 lets compute_atn_kernels collapse Q_atn_t at each campaign.
+    cd_rows   <- !fsch$is_camp
+    mc_rows   <-  fsch$is_camp
+    cd_t0  <- fsch$timesteps[cd_rows]
+    cd_Q0  <- fsch$coverages[cd_rows]
+    mc_t0  <- fsch$timesteps[mc_rows]
+    mc_Q0  <- fsch$coverages[mc_rows]
+    atn_overrides <- c(list(
+      p_atn             = 0.9,
+      deltaq            = deltaq_use,
+      gamma_atn         = gamma_atn,
+      chem_dose_atn     = chem_dose,
+      t0_atn            = cd_t0,
+      Q0_atn            = cd_Q0,
+      n_atn             = length(cd_t0),
+      atn_displace_t0   = mc_t0,
+      atn_displace_Q0   = mc_Q0
     ), atn_kern)
   }
 
