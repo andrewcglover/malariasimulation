@@ -321,8 +321,18 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   denominator is the untreated-net floor `(1 − rnm)` (bounded, ~0.76).
   *Previous formula `(sn+rnm)/sn` was buggy*: `/sn` blows up for insecticidal nets and inverted
   Pyr-ATN vs ATN exposure ordering; fixed by changing denominator to `(1 − rnm)`.
-  No new parameters — existing bednet schedule matrices reused. If `match` returns NA (edge case:
+  If `match` returns NA (edge case:
   t0_atn not in bednet schedule), `contact_factor` falls back to 1 for that event. Tests in §12f.
+- **`chem_dose_atn` sensitivity knob (added 2026-06-23).** Generalises the numerator to
+  `(sn + rnm + f·rn_chem) / (1 − rnm)`, where `f = chem_dose_atn` (default **0**, `get_parameters`)
+  and `rn_chem = max(rn − rnm, 0)` is the chemical excito-repellency. `f = 0` reproduces the
+  original `(sn + rnm)/(1 − rnm)` (so all baselines/existing outputs are unchanged); `f = 1` lets
+  every repelled-but-not-killed mosquito touch-and-dose → `(1 − dn)/(1 − rnm)`. Models the
+  uncertainty that chemically-repelled mosquitoes may still briefly contact the net and pick up the
+  antimalarial. **Only affects `pyr_atn`/`pyr_cfp_atn`** (the only arms with `rn > rnm`; pure `atn`
+  has `rn ≈ rnm` so `rn_chem ≈ 0`, and non-ATN arms have `delta_atn = 0`). R-only change — no C++
+  recompile. Pipeline: `dev/c24med_projection_run.R` exposes it via env var `ATN_CHEM_DOSE`
+  (+ `SWEEP_ARMS` to subset arms); `OUT_FILE` gains a `_chem{tag}` suffix when `f > 0`.
 
 ## 11. Mali projection pipeline (dev/mali_projection_run.R, confirmed 2026-06-17)
 

@@ -43,8 +43,16 @@ FORK_PATH   <- normalizePath(".")
 #   Launch as: ANTIMAL_HL_YEARS=5 SWEEP_CORES=10 Rscript dev/c24med_projection_run.R
 hl_years       <- as.numeric(Sys.getenv("ANTIMAL_HL_YEARS", "2.64"))
 hl_tag         <- gsub("\\.", "p", format(hl_years, trim = TRUE))  # 2.64->"2p64", 5->"5", 1->"1"
-OUT_FILE       <- sprintf("dev/outputs/%s_c24med_projection_results_hl%s.rds",
-                          tolower(COUNTRY_ISO), hl_tag)
+
+# ATN_CHEM_DOSE: chem_dose_atn (= f), fraction of chemically-repelled (rn-rnm) mosquitoes that
+# still touch the net and receive a dose. Default 0 = current model. Sensitivity: 1 (or 0.5, etc.).
+# Only affects pyr_atn / pyr_cfp_atn (the only arms with rn > rnm). When > 0, OUT_FILE gets a
+# _chem{tag} suffix so default runs keep their existing names.
+chem_dose      <- as.numeric(Sys.getenv("ATN_CHEM_DOSE", "0"))
+chem_tag       <- gsub("\\.", "p", format(chem_dose, trim = TRUE))  # 1->"1", 0.5->"0p5"
+chem_suffix    <- if (chem_dose > 0) sprintf("_chem%s", chem_tag) else ""
+OUT_FILE       <- sprintf("dev/outputs/%s_c24med_projection_results_hl%s%s.rds",
+                          tolower(COUNTRY_ISO), hl_tag, chem_suffix)
 
 # SWEEP_CORES: number of parallel workers. Override via env var for concurrent runs.
 sweep_cores_env <- Sys.getenv("SWEEP_CORES", "")
@@ -57,6 +65,12 @@ N_CORES <- if (nchar(sweep_cores_env) > 0L) {
 human_pop      <- 100000L
 n_future_years <- 6L
 arms           <- c("none", "pyr", "pyr_pbo", "pyr_cfp", "atn", "pyr_atn", "pyr_cfp_atn")
+# SWEEP_ARMS: comma-separated subset to run (default = all 7). Used for the chem-dose sensitivity
+# sweep, which only needs the affected arms (pyr_atn,pyr_cfp_atn).
+sweep_arms_env <- Sys.getenv("SWEEP_ARMS", "")
+if (nzchar(sweep_arms_env)) {
+  arms <- trimws(strsplit(sweep_arms_env, ",")[[1]])
+}
 retention_override <- NULL
 deltaq_use     <- 10L
 
@@ -75,6 +89,7 @@ site_obj     <- readRDS(SITE_FILE)
 country_name <- unique(site_obj$country)[1]
 message(sprintf("Country: %s (%s)", country_name, COUNTRY_ISO))
 message(sprintf("ANTIMAL HL: %.2f yr (tag: hl%s) | cores: %d", hl_years, hl_tag, N_CORES))
+message(sprintf("chem_dose_atn (f): %g | arms: %s", chem_dose, paste(arms, collapse = ",")))
 message(sprintf("OUT_FILE: %s", OUT_FILE))
 
 site_retention <- unique(site_obj$interventions$mean_retention)
@@ -266,12 +281,13 @@ build_params <- function(region, arm) {
   atn_overrides <- list()
   if (arm %in% c("atn", "pyr_atn", "pyr_cfp_atn")) {
     atn_overrides <- c(list(
-      p_atn     = 0.9,
-      deltaq    = deltaq_use,
-      gamma_atn = gamma_atn,
-      Q0_atn    = fsch$coverages,
-      t0_atn    = fsch$timesteps,
-      n_atn     = length(fsch$timesteps)
+      p_atn         = 0.9,
+      deltaq        = deltaq_use,
+      gamma_atn     = gamma_atn,
+      chem_dose_atn = chem_dose,
+      Q0_atn        = fsch$coverages,
+      t0_atn        = fsch$timesteps,
+      n_atn         = length(fsch$timesteps)
     ), atn_kern)
   }
 
@@ -360,6 +376,7 @@ parallel::clusterExport(cl, c(
   "site_obj", "regions", "start_year", "hist_last", "future_yr0",
   "future_start_day", "future_campaign_days", "n_steps", "n_future_years",
   "cfp_pars", "only_pars", "pbo_pars", "atn_kern", "gamma_atn", "ANTIMAL_HL_DAYS",
+  "chem_dose",
   "cd_cov", "campaign_cov", "cd_interval", "retention_time", "deltaq_use",
   "render_overrides", "form_overrides", "human_pop",
   "future_interventions"
@@ -401,7 +418,10 @@ saveRDS(list(
     gamma_atn      = gamma_atn,
     ANTIMAL_HL_DAYS = ANTIMAL_HL_DAYS,
     hl_years       = hl_years,
-    hl_tag         = hl_tag
+    hl_tag         = hl_tag,
+    chem_dose      = chem_dose,
+    chem_tag       = chem_tag,
+    arms           = arms
   )
 ), OUT_FILE)
 message("Saved -> ", OUT_FILE)

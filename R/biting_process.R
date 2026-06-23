@@ -326,15 +326,17 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
   dn_atn    <- if (Q_t > 0) sum(Q_each * dn_each)      / Q_t else 0
 
   # --- contact_factor: barrier-repelled mosquitoes (prob rnm) physically touch the
-  # net and pick up the drug; only chemical excito-repellency (rn - rnm) prevents
-  # contact entirely. So the ATN-exposure rate scales by
-  #   contact_factor = (sn + rnm) / sn = (1 - rn_chem - dn) / (1 - rn - dn)
-  # where sn = 1 - rn - dn (feed-and-survive probability).
-  # Non-insecticidal ATN (rn0 = rnm, dn0 = 0): contact_factor = 1 / (1 - rnm).
-  # Pyr-ATN: starts at (1 - rn0 - dn0 + rnm)/(1 - rn0 - dn0) for a fresh net,
-  #          decays toward 1/(1 - rnm) as insecticide wanes.
+  # net and pick up the drug; chemical excito-repellency (rn_chem = rn - rnm) normally
+  # prevents contact entirely. chem_dose_atn (= f, default 0) lets a fraction of the
+  # chemically-repelled group still touch-and-dose, so the ATN-exposure rate scales by
+  #   contact_factor = (sn + rnm + f*rn_chem) / (1 - rnm),  sn = 1 - rn - dn.
+  #   f = 0 -> (sn + rnm)/(1 - rnm)        (no chemically-repelled dose; original model)
+  #   f = 1 -> (sn + rn)/(1 - rnm) = (1 - dn)/(1 - rnm)  (all but pyrethroid-killed dose)
+  # Non-insecticidal ATN (rn0 = rnm, dn0 = 0): rn_chem ~ 0, so f is inconsequential and
+  #   contact_factor = 1 / (1 - rnm) for any f.
   # Source rn/rnm/dn0/gamman by matching each t0_atn to its bednet schedule row.
   # Falls back to 1 (no adjustment) when no bednet schedule or no row match.
+  f_chem <- if (is.null(parameters$chem_dose_atn)) 0 else parameters$chem_dose_atn
   contact_factor <- if (is.null(parameters$bednet_timesteps)) {
     1
   } else {
@@ -350,8 +352,9 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
     rn_e    <- (rn0_e - rnm_e) * decay_e + rnm_e           # rn(dt): prob_repelled_bednets
     dn_e    <- dn0_e * decay_e                              # dn(dt): prob_survives_bednets
     sn_e    <- 1 - rn_e - dn_e                              # feed-and-survive prob (no floor: not dividing by sn)
+    rn_chem <- pmax(rn_e - rnm_e, 0)                        # chemical excito-repellency (>= 0)
     cf_each <- ifelse(!is.na(bed_idx),
-                      pmax(sn_e + rnm_e, 0) / pmax(1 - rnm_e, 1e-6),  # (sn+rnm)/(1-rnm): bounded, exclude killed
+                      pmax(sn_e + rnm_e + f_chem * rn_chem, 0) / pmax(1 - rnm_e, 1e-6),  # (sn+rnm+f*rn_chem)/(1-rnm)
                       1)
 
     if (Q_t > 0) sum(Q_each * cf_each) / Q_t else 1

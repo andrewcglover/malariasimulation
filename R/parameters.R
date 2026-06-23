@@ -491,6 +491,8 @@ get_parameters <- function(overrides = list(), parasite = "falciparum") {
       # Drug-effect baselines
       rho_frac   = 1,    # rho00   = rho_frac * rho (scale factor)
       dn0_atn    = 0,    # peak extra mosquito mortality
+      chem_dose_atn = 0, # frac. of chemically-repelled (rn-rnm) mosquitoes that still touch the
+                         # net and receive a dose (0 = current model; 1 = all but killed dose)
       # Hill kernel — pre-infection blocking (Lambda_i)
       s_half_pre = 1,
       nH_pre     = 1,
