@@ -202,6 +202,10 @@ simulate_bites <- function(
       )
     } else {
       kernels <- compute_atn_kernels(timestep, parameters, foim, s_i)
+      if (s_i == 1L) {
+        # Q_t is species-independent; render once as expected ATN holders.
+        renderer$render('n_use_atn', kernels$Q_t * parameters$human_population, timestep)
+      }
       if (isTRUE(parameters$atn_debug)) {
         # Diagnostic: render the exact per-species inputs to the ATN exposure
         # pathway so a region's exposed fraction can be reconciled with av_da.
@@ -413,6 +417,7 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
   B_post <- if (parameters$use_bompard) bompard(b_lab_post) else b_lab_post
 
   list(
+    Q_t            = Q_t,
     delta_atn      = delta_atn,
     contact_factor = contact_factor,
     dn_atn         = dn_atn,
