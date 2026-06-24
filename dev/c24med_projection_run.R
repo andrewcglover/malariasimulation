@@ -51,8 +51,11 @@ hl_tag         <- gsub("\\.", "p", format(hl_years, trim = TRUE))  # 2.64->"2p64
 chem_dose      <- as.numeric(Sys.getenv("ATN_CHEM_DOSE", "0"))
 chem_tag       <- gsub("\\.", "p", format(chem_dose, trim = TRUE))  # 1->"1", 0.5->"0p5"
 chem_suffix    <- if (chem_dose > 0) sprintf("_chem%s", chem_tag) else ""
-OUT_FILE       <- sprintf("dev/outputs/%s_c24med_projection_results_hl%s%s.rds",
-                          tolower(COUNTRY_ISO), hl_tag, chem_suffix)
+# OUT_SUFFIX: extra tag appended to the filename (before .rds) so non-default runs
+# (e.g. retention sweeps, single-arm add-on runs) never overwrite existing results.
+out_extra_suffix <- Sys.getenv("OUT_SUFFIX", "")
+OUT_FILE       <- sprintf("dev/outputs/%s_c24med_projection_results_hl%s%s%s.rds",
+                          tolower(COUNTRY_ISO), hl_tag, chem_suffix, out_extra_suffix)
 
 # SWEEP_CORES: number of parallel workers. Override via env var for concurrent runs.
 sweep_cores_env <- Sys.getenv("SWEEP_CORES", "")
@@ -72,7 +75,10 @@ sweep_arms_env <- Sys.getenv("SWEEP_ARMS", "")
 if (nzchar(sweep_arms_env)) {
   arms <- trimws(strsplit(sweep_arms_env, ",")[[1]])
 }
-retention_override <- NULL
+# NET_RETENTION_DAYS: override the site mean_retention (days). Empty = use site value.
+# Used for the retention sensitivity (site value treated as a half-life -> scale by log(2)).
+ret_env            <- Sys.getenv("NET_RETENTION_DAYS", "")
+retention_override <- if (nzchar(ret_env)) as.numeric(ret_env) else NULL
 deltaq_use     <- 10L
 
 # Future non-net site interventions (same defaults as previous scripts).
@@ -452,6 +458,7 @@ saveRDS(list(
     future_start_day = future_start_day,
     n_future_years = n_future_years,
     human_pop      = human_pop,
+    retention_time = retention_time,
     cd_floor       = cd_floor,
     cd_cov         = cd_cov,
     gamma_atn      = gamma_atn,
