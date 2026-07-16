@@ -347,6 +347,11 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
     regardless of what product campaigns distribute. The sawtooth (build via CD → collapse at MC
     → rebuild) falls out naturally once `Q_atn_t` sees the displacement events.
   - `contact_factor`, `lambda_atn` decay, `delta_atn`, Hill/Bompard kernels, C++ ODE: all unaffected.
+- **`n_use_atn` render output (added 2026-06-23).** `compute_atn_kernels` returns `Q_t` (total ATN
+  coverage at the current timestep). `simulate_bites` (`R/biting_process.R`) renders
+  `n_use_atn = Q_t * human_population` once per timestep (gated on `s_i == 1L` since `Q_t` is
+  species-independent) — the deterministic expected count of ATN net holders used by the mosquito
+  ODE. Enables ATN-coverage time-series plots without instrumenting the IBM `net_time` variable.
 
 ## 11. Mali projection pipeline (dev/mali_projection_run.R, confirmed 2026-06-17)
 
@@ -422,3 +427,24 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   touched it. This is a site-data error, not a malariasimulation code bug.
   **TODO:** raise the DDT `ms_gamma` sign error with the `site`-package maintainer; consider
   an upstream warning in `set_spraying` for `ms_gamma > 0` (parked for now).
+- **c24med pipeline env vars — `dev/c24med_projection_run.R` (confirmed 2026-06-24).** All are
+  optional; defaults produce the standard multi-arm, site-retention output.
+
+  | Env var | Effect | Default |
+  |---|---|---|
+  | `ANTIMAL_HL` | Antimalarial half-life (years) → `hl{tag}` in `OUT_FILE` | `2.64` |
+  | `ATN_CHEM_DOSE` | `chem_dose_atn` knob → `_chem{tag}` suffix (see §10) | `0` |
+  | `SWEEP_ARMS` | Comma-separated arm subset (see §10) | all arms |
+  | `SWEEP_CORES` | Parallel workers; pipeline scripts use `12` | `18` |
+  | `OUT_SUFFIX` | Extra tag appended before `.rds` — keeps retention/add-on runs distinct | `""` |
+  | `NET_RETENTION_DAYS` | Override site `mean_retention` (days); empty = site value (≈2014 d MLI) | site value |
+
+  `OUT_FILE` pattern: `{iso}_c24med_projection_results_hl{hl_tag}{chem_suffix}{out_extra_suffix}.rds`.
+  Output metadata includes `retention_time` for traceability.
+  Overnight driver: `dev/run_c24med_overnight.sh` (Jobs A–F sequential).
+  Targeted re-run: `dev/run_c24med_rerun_DE.sh` (Job D ATN-only + Job E; respects `SWEEP_CORES`).
+- **Selectable multi-file plotter — `dev/c24med_projection_plots_select.R` (added 2026-06-24).**
+  Per-series registry keyed on `(key, arm, f, hl, ret)`; non-ATN arms always pinned to the BASELINE
+  job (Job C). Three selectable dimensions: `f` (`chem_dose_atn`), `hl`, `ret` (retention).
+  Human-readable filename suffix (e.g. `kABCDEFGH_hl2p64_f0_ret1396`) + manifest CSV. RDS files
+  cached per path; missing files warned + dropped (not error).
