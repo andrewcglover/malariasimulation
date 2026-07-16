@@ -28,7 +28,7 @@ run_job () {
   local tag="$1"; local logf="$2"; local expect="$3"; shift 3
   log "START  $tag"
   log "       env: $*"
-  env "$@" SWEEP_CORES=18 \
+  env "$@" SWEEP_CORES=${SWEEP_CORES:-18} \
     Rscript -e "devtools::load_all('.', quiet=TRUE); source('dev/c24med_projection_run.R')" \
     > "$logf" 2>&1
   local rc=$?
