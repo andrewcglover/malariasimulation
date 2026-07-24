@@ -94,6 +94,35 @@ The exposure rate is `av_da = a * delta_atn * contact_factor` (see `R/biting_pro
     aquatic model, and total mosquito density are all unchanged. `Sv→Ev` infection rates stay
     feed-based; the extra contacts from `contact_factor` flow into `Sv_exposed` only.
 
+**PENDING PROPOSAL — feeding-cycle-derived `contact_factor` (2026-07-21, NOT yet implemented).**
+The `(sn + rnm)/(1 − rnm)` denominator above is a heuristic proxy and is not principled: code
+analysis of the feeding cycle shows `a` carries almost none of the ATN net's own *survival*
+suppression (elasticity `∂ln a/∂ln sn ≈ 0.03` at gambiae defaults — `sn` reaches `a` only via
+`W→d`, `rn` only via `Z→a`, both scaled by `χφg`), so dividing by a survival-scale quantity
+(`1 − rnm`, or the old `/sn`) over-corrects. Deriving the contact rate straight from the feeding
+cycle (attempts/time `= a/(1−Z)`; viable-contact prob/attempt `= χ·g·φ·p_contact`; `δ`'s coverage
+& `φ` cancel — no double-count) gives
+`contact_factor = (χ / (d·(1−Z))) · p_contact`, where `p_contact = sn + rnm + f·(rn−rnm)+`
+(NUMERATOR UNCHANGED), `χ = Q0`, `d = 1−(1−χ)/W` (realized human blood index), `Z` = population
+repellency. Properties: no `sn`/`rnm` in denominator; `→ p_contact` when `Z→0` (the "no denominator"
+limit); boost above `p_contact` is purely repellency-retry-driven; bounded exposure (`a·c` finite as
+`Z→1`); Pyr-ATN < ATN preserved. **Changes ALL ATN-on results incl. default `f=0`** (~16% lower
+headline ATN drug exposure: new `c≈1.11` vs current `1.32` for non-insec ATN) → full c24med re-run
+needed; NOT baseline-preserving. Full derivation + numbers: `dev/reference/ATN_contact_factor_proposal.tex`.
+Plumbing: `W`/`Z`/`d` live in `simulate_bites`, not passed to `compute_atn_kernels` yet — pass them
+in or move the `c` line. Open choices when implementing: (a) keep `χ/d` correction or approx `≈1`
+(pure `(1−rnm)→(1−Z)`); (b) make selectable (`contact_model = "barrier"|"cycle"`) vs replace outright.
+Awaiting user review of the .tex before any code change.
+Reconciles with Griffin 2010 SI (Text S2, the "biting rate on humans is" eqn, `α = d·a`): the
+prefactor `χ/(d(1−Z))` is exactly (human *attempt* rate `χa/(1−Z)`)/(Griffin human *biting* rate
+`d·a`), so `α·c = (χa/(1−Z))·p_contact` = attempt rate × viable-contact fraction (`d` cancels). `c`
+generalizes Griffin's IRS "effective biting rate" inflation (`y_i/w_i`, bite-before-death) to net
+*contacts* (need not feed; carries the `1/(1−Z)` retry factor Griffin's feed-only form lacks).
+**Verified against Griffin SI Text S2** (eqns transcribed & confirmed 2026-07-22): `f_R=1/(δ1+δ2)`,
+`δ1=δ10/(1−Z)`; `Q=1−(1−Q0)/W`; `α=Q·f_R`; IRS inflation `y_i/w_i`. Griffin `.doc` eqns are embedded
+MathType — read prose via `antiword`; mapping also matches code (`blood_meal_rate=a`,
+`average_p_successful=W`, `average_p_repelled=Z`, `.human_blood_meal_rate=d·a`).
+
 **Out-of-scope note:** the leMenach/Griffin death-rate formula `p1 = p1_0·W/(1 − Z·p1_0)` means
 a repellent-only net (ATN, `dn0=0`, `rn=0.24`) lowers `mu` relative to no net, so total mosquito
 density is slightly *higher* under ATN than no-nets. This is pre-existing biting-model behaviour,
@@ -114,7 +143,12 @@ Bompard TRA→field-TBA transformed; see v3 lines ~430–467):
 
 1. **Pre-infection blocking** `Lambda_i` — reduces the human→mosquito FOI for exposed mosquitoes.
 2. **EIP suppression** `rho_i` — slows sporogony for exposed mosquitoes (longer EIP ⇒ fewer reach `Iv`).
-3. **Extra mortality** `dn_atn` — added death for exposed mosquitoes (the `(1 - dn_atn)` survival factors).
+3. **Extra mortality** `dn_atn` — a `(1 - dn_atn)` survival factor on exposure-compartment *inflow*.
+   **CORRECTED framing (2026-07-23):** this is NOT an antimalarial effect (antimalarials cause **no**
+   excess mortality). It is the **pyrethroid** net mortality (`dn0`): set `dn0_atn = dn0` for an
+   **AITN** (co-treated pyrethroid+antimalarial net), `0` for a pure ATN. **Held at 0 for all arms**
+   to avoid double-counting — see the §10 `dn0_atn` note. The SI drops it from the drug-mechanism
+   list (four → three).
 4. **Post-infection blocking** `B_post[j]` — an already-infected `Ev` mosquito, re-exposed, clears its
    infection and returns to `Sv[2]`; keyed to time-since-infection `t_post[j] = (j-0.5)*delayMos/spor_len`.
 
@@ -389,9 +423,24 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   year (`start_year + grid %/% 365`) and calling `med_net(pars, res_year)`. So `dn0`/`rn`/`gamman`
   now vary across the future window in step with the rising resistance trend (verified Mopti:
   2025≈0.82 → 2031≈0.92). Past nets already read per-row site efficacy (unchanged).
-- **`dn0_atn` override dropped for `pyr_atn` (2026-06-18).** Pyrethroid mortality for Pyr-ATN flows
-  through the ITN-side `dn0`/`rn` in the net schedule (now resistance-projected); the ATN kernel's
-  `dn0_atn` represents only the antimalarial's extra mortality (default 0) — avoids double-counting.
+- **`dn0_atn` = pyrethroid net mortality, held at 0 for all arms (CORRECTED 2026-07-23; supersedes
+  the 2026-06-18 "dropped for pyr_atn" note).** `dn0_atn` is **NOT** the antimalarial's mortality
+  (antimalarials cause none). It is the **pyrethroid** `dn0`, applied as a `(1 - dn_atn)` survival
+  factor on the ATN exposure-compartment *inflow*; intended use is `dn0_atn = dn0` for an **AITN**
+  (co-treated pyrethroid+antimalarial net), `0` for a pure ATN. Kept **0 for every arm** in
+  production (`dev/c24med_projection_run.R` leaves it unset → 0). Confirmed correct to avoid
+  **double-counting**: for `pyr_atn`, `set_bednets` gets the real pyrethroid `dn0`
+  (`c24med:246,252,363-367`), which already elevates the death rate `mu` via `death_rate()`
+  (`R/mosquito_biology.R:163-169`: `p1 = p1_0*W/(1 - Z*p1_0)`, `W` carries `sn = 1 - rn - dn`), so a
+  `(1 - dn_atn)` at the exposure inflow would kill those deaths a second time.
+  **Accepted limitation:** `mu` carries the pyrethroid mortality as a mean-field population-average,
+  NOT concentrated on the net-contacting (antimalarial-exposed) mosquitoes — so exposed mosquitoes
+  are not more likely to die, whereas for a true AITN the drug-contact and pyrethroid-kill are the
+  same event (antimalarial effect for AITN arms is thus arguably slightly overestimated). Proper fix
+  is structural (withhold net-contact mortality from `mu`, re-apply at the exposure transition,
+  keeping `rn` driving `W`/`Z`) — deferred. **TODO:** four dev test scripts still set
+  `dn0_atn = only$dn0` (`atn_local_test.R:148`, `atn_local_test_v2.R:143`,
+  `atn_local_test_cd_v1.R:228`, `atn_convergence_check.R:97`) → will double-count if rerun; zero them.
   See §3 "Repellency / pyrethroid-resistance coupling" for why repellency lives in `a`, not `delta_atn`.
 - **Kernel invariant tests (2026-06-18):** `tests/testthat/test-atn-mosquito.R` §12d —
   six `compute_atn_kernels()` invariants. §12e (added 2026-06-18) — four `lambda_atn` auto-derive
