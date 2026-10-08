@@ -94,7 +94,7 @@ run_arm <- function(arm, eir, res, deltaq = 10L, atn_window = 10, spor_len = 10L
       s_half_pre = s_half_pre, nH_pre = nH_pre,
       B_max_post = B_max_post, s_half_post = s_half_post, nH_post = nH_post,
       Q0_atn = new_covs, t0_atn = new_distribution_times, n_atn = n_new_dist,
-      dn0_atn = only$dn0))
+      dn0_atn = 0))  # held at 0: pyrethroid kill already carried by mu via set_bednets (CLAUDE.md §10)
   }
 
   coverages <- c(old_covs, fut_cov)

@@ -225,7 +225,7 @@ run_arm <- function(arm, eir, res) {
       s_half_pre = s_half_pre, nH_pre = nH_pre,
       B_max_post = B_max_post, s_half_post = s_half_post, nH_post = nH_post,
       Q0_atn = sch$atn_cov, t0_atn = sch$atn_times, n_atn = sch$n_atn,
-      dn0_atn = only$dn0
+      dn0_atn = 0  # held at 0: pyrethroid kill already carried by mu via set_bednets (CLAUDE.md §10)
     )
   }
 

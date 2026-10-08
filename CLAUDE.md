@@ -438,9 +438,10 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   are not more likely to die, whereas for a true AITN the drug-contact and pyrethroid-kill are the
   same event (antimalarial effect for AITN arms is thus arguably slightly overestimated). Proper fix
   is structural (withhold net-contact mortality from `mu`, re-apply at the exposure transition,
-  keeping `rn` driving `W`/`Z`) — deferred. **TODO:** four dev test scripts still set
-  `dn0_atn = only$dn0` (`atn_local_test.R:148`, `atn_local_test_v2.R:143`,
-  `atn_local_test_cd_v1.R:228`, `atn_convergence_check.R:97`) → will double-count if rerun; zero them.
+  keeping `rn` driving `W`/`Z`) — deferred, limitation accepted 2026-10-08. **DONE (2026-10-08):**
+  the four dev test scripts that previously set `dn0_atn = only$dn0` (`atn_local_test.R`,
+  `atn_local_test_v2.R`, `atn_local_test_cd_v1.R`, `atn_convergence_check.R`) now set it to 0
+  explicitly, so they no longer double-count if rerun.
   See §3 "Repellency / pyrethroid-resistance coupling" for why repellency lives in `a`, not `delta_atn`.
 - **Kernel invariant tests (2026-06-18):** `tests/testthat/test-atn-mosquito.R` §12d —
   six `compute_atn_kernels()` invariants. §12e (added 2026-06-18) — four `lambda_atn` auto-derive
