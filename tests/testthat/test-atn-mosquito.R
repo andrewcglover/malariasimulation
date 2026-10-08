@@ -328,17 +328,19 @@ test_that('set_bednets with logistic retention warns and sets lambda_atn = 1/hal
   expect_equal(parameters$lambda_atn, 1 / 1500, tolerance = 1e-12)
 })
 
-# ── 12f: exposure rate xi = f_A * Q_A, and the contact probability p_contact ──
+# ── 12f: exposure rate xi, dosed-infection share eps, and the kernels p_contact, s_feed ──
 #
 # p_contact is the coverage-weighted mean of p_C = sn + rnm (+ f * rn_chem), the
 # probability a mosquito survives and contacts the net per attempt on an ATN user.
 # Fed survivors and barrier-repelled mosquitoes (rnm) contact the net; pyrethroid-killed
 # mosquitoes (dn) are excluded. The retry inflation 1/(1 - Z) is applied through the
 # attempt rate f_A = f / (1 - Z) in simulate_bites, not in p_contact (SI eq:fA, eq:Q_A,
-# eq:xi). The kernel tests call compute_atn_kernels() directly with set_bednets set up so
-# that t0_atn matches a bednet schedule row (as in the Mali pipeline).
+# eq:xi). s_feed is the coverage-weighted mean of s_N = 1 - rn - dn, the numerator term of
+# the dosed-infection share eps (SI eq:varepsilon). The kernel tests call
+# compute_atn_kernels() directly with set_bednets set up so that t0_atn matches a bednet
+# schedule row (as in the Mali pipeline).
 
-test_that('compute_atn_kernels: p_contact = 1 when no set_bednets called', {
+test_that('compute_atn_kernels: p_contact = s_feed = 1 when no set_bednets called', {
   # NULL parameters$bednet_timesteps -> fallback to 1 (no adjustment).
   parameters <- get_parameters(list(
     p_atn = 0.9, Q0_atn = 0.8, t0_atn = 1L, lambda_atn = 0
@@ -346,9 +348,10 @@ test_that('compute_atn_kernels: p_contact = 1 when no set_bednets called', {
   parameters <- set_equilibrium(parameters, 50.)
   k <- compute_atn_kernels(100L, parameters, parameters$init_foim, 1L)
   expect_equal(k$p_contact, 1)
+  expect_equal(k$s_feed, 1)
 })
 
-test_that('compute_atn_kernels: p_contact = 1 for non-insecticidal ATN', {
+test_that('compute_atn_kernels: p_contact = 1, s_feed = 1 - rnm for non-insecticidal ATN', {
   # rn0 = rnm, dn0 = 0: sn = 1 - rnm, so p_C = sn + rnm = 1 at every net age.
   rnm_val <- 0.24 - 1e-9
   parameters <- get_parameters(list(
@@ -367,9 +370,11 @@ test_that('compute_atn_kernels: p_contact = 1 for non-insecticidal ATN', {
   k <- compute_atn_kernels(200L, parameters, parameters$init_foim, 1L)
   # rnm sits 1e-9 below rn (set_bednets needs rnm < rn), so p_C = 1 - 1e-9.
   expect_equal(k$p_contact, 1, tolerance = 1e-8)
+  # Feeding through the net succeeds unless barrier-repelled, at every net age.
+  expect_equal(k$s_feed, 1 - 0.24, tolerance = 1e-8)
 })
 
-test_that('compute_atn_kernels: p_contact for fresh Pyr-ATN matches sn + rnm at dt=0', {
+test_that('compute_atn_kernels: fresh Pyr-ATN gives p_contact = sn + rnm, s_feed = sn', {
   # At dt=0, rn(0)=rn0, dn(0)=dn0, sn(0)=1-rn0-dn0, so p_C = sn + rnm (f = 0).
   # Must be < 1 (the non-insecticidal ATN value): Pyr-ATN < ATN ordering.
   rn0_val <- 0.5; rnm_val <- 0.24; dn0_val <- 0.3
@@ -391,9 +396,10 @@ test_that('compute_atn_kernels: p_contact for fresh Pyr-ATN matches sn + rnm at 
   expect_equal(k$p_contact, sn_expected + rnm_val, tolerance = 1e-9)
   # Pyr-ATN p_contact < non-insecticidal ATN value of 1 (ordering check)
   expect_lt(k$p_contact, 1)
+  expect_equal(k$s_feed, sn_expected, tolerance = 1e-9)
 })
 
-test_that('compute_atn_kernels: p_contact rises toward 1 as Pyr-ATN ages', {
+test_that('compute_atn_kernels: aged Pyr-ATN gives p_contact -> 1, s_feed -> 1 - rnm', {
   # With small gamman, rn->rnm and dn->0 quickly, so p_C -> (1 - rnm) + rnm = 1.
   rnm_val <- 0.24
   parameters <- get_parameters(list(
@@ -411,11 +417,42 @@ test_that('compute_atn_kernels: p_contact rises toward 1 as Pyr-ATN ages', {
   parameters <- set_equilibrium(parameters, 50.)
   k <- compute_atn_kernels(600L, parameters, parameters$init_foim, 1L)
   expect_equal(k$p_contact, 1, tolerance = 1e-6)
+  expect_equal(k$s_feed, 1 - rnm_val, tolerance = 1e-6)
 })
 
-test_that('simulate_bites passes xi = f_A * Q_A to the adult mosquito model', {
+test_that('compute_atn_kernels: s_feed is the coverage-weighted mean of s_N over events', {
+  # Two Pyr-ATN campaigns of different ages in circulation at once: s_N is evaluated at
+  # each campaign's own net age and weighted by that campaign's surviving coverage,
+  # not evaluated at a mean net age.
+  rn0_val <- 0.5; rnm_val <- 0.24; dn0_val <- 0.3; gam <- 200
+  parameters <- get_parameters(list(
+    p_atn = 0.9, n_atn = 2L, t0_atn = c(100L, 400L), Q0_atn = c(0.5, 0.6),
+    lambda_atn = 0
+  ))
+  n_sp <- length(parameters$species)
+  parameters <- set_bednets(
+    parameters,
+    timesteps = c(100L, 400L), coverages = c(0.5, 0.6), retention = 5000,
+    dn0    = matrix(dn0_val, nrow = 2, ncol = n_sp),
+    rn     = matrix(rn0_val, nrow = 2, ncol = n_sp),
+    rnm    = matrix(rnm_val, nrow = 2, ncol = n_sp),
+    gamman = c(gam, gam)
+  )
+  parameters <- set_equilibrium(parameters, 50.)
+  k <- compute_atn_kernels(500L, parameters, parameters$init_foim, 1L)
+
+  # Random proportional replacement: the second campaign displaces 60% of the first.
+  U   <- c(0.5 * (1 - 0.6), 0.6)
+  age <- c(400, 100)
+  sn  <- 1 - ((rn0_val - rnm_val) * exp(-age / gam) + rnm_val) - dn0_val * exp(-age / gam)
+  expect_equal(k$s_feed, sum(U * sn) / sum(U), tolerance = 1e-12)
+})
+
+test_that('simulate_bites passes xi = f_A * Q_A and eps to the adult mosquito model', {
   # Checks the exposure rate against the second form of SI eq:fA,
-  # f_A = 1 / (delta_10 + (1 - Z) * delta_2), so it is not the same algebra as the code.
+  # f_A = 1 / (delta_10 + (1 - Z) * delta_2), and the dosed-infection share against the
+  # denominator (W - (1 - Q0)) / Q0 of SI eq:varepsilon, so neither is the same algebra
+  # as the code.
   population <- 4
   timestep <- 5
   parameters <- get_parameters(list(human_population = population))
@@ -435,6 +472,7 @@ test_that('simulate_bites passes xi = f_A * Q_A to the adult mosquito model', {
     Q_t       = 0.5,
     delta_atn = 0.3,
     p_contact = 0.85,
+    s_feed    = 0.7,
     dn_atn    = 0,
     Lambda0_t = 0,
     Lambda_i  = rep(0, parameters$deltaq + 1L),
@@ -467,11 +505,48 @@ test_that('simulate_bites passes xi = f_A * Q_A to the adult mosquito model', {
   delta2  <- 1 / parameters$blood_meal_rates[[1]] - delta10
   f_A     <- 1 / (delta10 + (1 - Z) * delta2)
   Q_A     <- Q0 * kernels$delta_atn * kernels$p_contact
+  W       <- (1 - Q0) + Q0 * 0.8   # SI eq:W, with w_h = 0.8 for every human
+  eps     <- kernels$delta_atn * kernels$s_feed / ((W - (1 - Q0)) / Q0)
 
   args <- mockery::mock_args(update_mock)[[1]]
   expect_equal(args[[4]], f_A * Q_A, tolerance = 1e-12)
-  # the infection-split share is passed through unchanged
-  expect_equal(args[[5]], kernels$delta_atn)
+  expect_equal(args[[5]], eps, tolerance = 1e-12)
+  # conditioning on a successful feed: here s_feed < sum_h pi_h w_h, so eps < delta_atn
+  expect_lt(args[[5]], kernels$delta_atn)
+})
+
+test_that('simulate_bites passes eps = 0 when ATNs are off', {
+  # ATN-off: delta_atn = 0, so xi = 0 and eps = 0 exactly (baseline untouched).
+  population <- 4
+  timestep <- 5
+  parameters <- get_parameters(list(human_population = population))
+  variables <- create_variables(parameters)
+  variables$zeta <- individual::DoubleVariable$new(c(.2, .3, .5, .9))
+  variables$infectivity <- individual::DoubleVariable$new(c(.6, 0, .2, .3))
+  age <- c(20, 24, 5, 39) * 365
+
+  mockery::stub(simulate_bites, 'rpois', 0)
+  update_mock <- mockery::mock()
+  mockery::stub(simulate_bites, 'adult_mosquito_model_update', update_mock)
+
+  models <- parameterise_mosquito_models(parameters, timestep)
+  solvers <- parameterise_solvers(models, parameters)
+  simulate_bites(
+    individual::Render$new(timestep),
+    solvers,
+    models,
+    variables,
+    create_events(parameters),
+    age,
+    parameters,
+    timestep,
+    LaggedValue$new(12.5, .001),
+    list(LaggedValue$new(12, 10))
+  )
+
+  args <- mockery::mock_args(update_mock)[[1]]
+  expect_identical(args[[4]], 0)
+  expect_identical(args[[5]], 0)
 })
 
 # ── §12g: displacement events (atn_displace_t0/Q0) ───────────────────────────

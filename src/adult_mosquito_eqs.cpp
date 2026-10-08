@@ -90,7 +90,7 @@ integration_function_t create_eqs(AdultMosquitoModel& model) {
         const double mu      = model.mu;
         const double foim    = model.foim;       // Lambda (baseline FOI)
         const double av_da   = model.av_da;      // exposure rate xi = f_A * Q_A (SI eq:xi; day^-1)
-        const double da      = model.delta_atn;  // fraction, for (1-da) terms
+        const double da      = model.delta_atn;  // epsilon, dosed-infection share (SI eq:varepsilon)
         const double dn      = model.dn_atn;
         const double L0      = model.Lambda0_t;  // coverage-weighted reduced FOI
         const double kappa   = model.kappa;

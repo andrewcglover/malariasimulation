@@ -44,7 +44,7 @@ inline size_t adult_state_size(size_t deltaqp1, size_t spor_len) {
  * Per-step scalars/vectors are updated each timestep by
  * adult_mosquito_model_update(). Conventions:
  *   av_da      = xi = f_A * Q_A  (ATN exposure rate, SI eq:xi, day^-1; precomputed in R)
- *   delta_atn  = exposure probability per bite (fraction; needed for (1-da) terms)
+ *   delta_atn  = epsilon, the dosed-infection share (SI eq:varepsilon; fraction; the (1-da) terms)
  *   dn_atn     = extra mortality fraction on ATN exposure
  *   Lambda0_t  = coverage-weighted reduced baseline FOI (day^-1; from R kernels)
  *   Lambda_i   = per-compartment raw FOI (R applies Hill decay; C++ applies (1-da))
@@ -64,7 +64,7 @@ struct AdultMosquitoModel {
     double mu;
     double foim;      // baseline FOI (Lambda in v3)
     double av_da;     // xi = f_A * Q_A  (ATN exposure rate, SI eq:xi, day^-1)
-    double delta_atn; // ATN exposure probability per bite (fraction, 0–1)
+    double delta_atn; // epsilon, dosed-infection share (SI eq:varepsilon; fraction, 0–1)
     double dn_atn;    // extra mortality fraction from ATN exposure
     double Lambda0_t; // coverage-weighted reduced baseline FOI
     // per-step vectors

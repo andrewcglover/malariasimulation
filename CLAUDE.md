@@ -68,8 +68,9 @@ The rate passed to C++ (as the `av_da` argument) is computed in `simulate_bites`
 - **`Q0`** is the mosquito anthropophagy `parameters$Q0[[s_i]]`, the share of *attempts* on humans.
   **Trap:** inside `compute_atn_kernels` the local `Q0` is the ATN coverage `Q0_atn`; that is why
   `xi` is built at the call site, not in the kernel.
-- **`delta_atn`** (`p_atn * phi_bednets[[s]] * Q_t`) is also passed to C++ separately as the
-  FOI-split share (ε); that second use is review point 4 (conditional form), not part of `xi`.
+- **`delta_atn`** (`p_atn * phi_bednets[[s]] * Q_t`, i.e. `p_A Φ_B U`) is the unconditional
+  per-attempt share used in `xi`. Since 2026-10-08 it is **not** passed to C++ itself; the
+  `delta_atn` C++ slot now carries ε (block below).
 - **`p_contact`** (`compute_atn_kernels`) is the coverage-weighted mean over distribution events of
   `p_C = sn + rnm + f·rn_chem` (`sn = 1 − rn − dn`, `rn_chem = max(rn − rnm, 0)`), so
   `Q0 · delta_atn · p_contact` is SI eq:Q_A including its sum over events. Fed survivors and
@@ -93,6 +94,22 @@ so the change rides on the single c24med re-run. Griffin 2010 SI Text S2 mapping
 `f_R = 1/(δ1 + δ2)`, `δ1 = δ10/(1 − Z)`, `Q = 1 − (1 − Q0)/W`, `α = Q·f_R`; code `blood_meal_rate` =
 `f_R`, `average_p_successful` = `W`, `average_p_repelled` = `Z`, `.human_blood_meal_rate` = `α`
 (Griffin `.doc` eqns are embedded MathType — read prose via `antiword`).
+
+**Dosed-infection share ε — DESIGN DECISION (2026-10-08; implements SI eq:varepsilon).**
+ε is the probability that a successful feed on a human results in exposure. It is passed to C++ in
+the `delta_atn` slot; every C++ use of `da` is the ε role (`(1 − da)·Λ_i` on each `Sv`, and
+`da·Λ0_t·Svtot` into the first exposed latent stage). Built in `simulate_bites` as
+`eps = delta_atn · s_feed / sum(.pi · prob_bitten_survives)`:
+- **`s_feed`** (`compute_atn_kernels`) is the coverage-weighted mean over distribution events of
+  `s_N = 1 − rn − dn`, from the same per-event `sn_e` as `p_contact`, with the same fallbacks (1).
+- The denominator is `Σ_h π_h w_h`, which equals `(W − (1 − Q0))/Q0` by SI eq:W; it is computed
+  directly (no cancellation, no division by `Q0`), and so includes historical ITNs and IRS.
+- ATN-off ⇒ `eps = 0` exactly. Debug renders `dbg_s_feed_*`, `dbg_eps_*`.
+- **History:** until 2026-10-08 (commit `0b0776d` and earlier) C++ received `delta_atn = p_A Φ_B U`,
+  i.e. P(attempt is on an ATN user) rather than P(dosed | infecting feed). New/old `= s_feed/Σπw`:
+  −15.4% for pure ATN at the illustrative config (`U = 0.5`, `s_N = 0.76`). That equals the ξ
+  correction there because `W = 1 − Z` when nothing kills, so both reduce to `s_N/Σπw`. The drop is
+  much larger for co-treated nets while the insecticide is fresh.
 
 **Out-of-scope note:** the leMenach/Griffin death-rate formula `p1 = p1_0·W/(1 − Z·p1_0)` means
 a repellent-only net (ATN, `dn0=0`, `rn=0.24`) lowers `mu` relative to no net, so total mosquito
@@ -324,7 +341,8 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   one bednet row (same `timesteps` vector, `mali_projection_run.R:248-258`). Per event
   `p_C = sn_e + rnm_e + f·rn_chem`, `sn_e = 1 − rn_e − dn_e`, then coverage-weighted across events;
   no denominator (the retry inflation is `1/(1 − Z)` in `xi`). If `match` returns NA (edge case:
-  t0_atn not in bednet schedule), `p_C` falls back to 1 for that event. Tests in §12f.
+  t0_atn not in bednet schedule), `p_C` falls back to 1 for that event. `s_feed` (coverage-weighted
+  `sn_e`, for ε) uses the same rows and the same fallbacks. Tests in §12f.
 - **`chem_dose_atn` sensitivity knob (added 2026-06-23).** Generalises `p_C` to
   `sn + rnm + f·rn_chem`, where `f = chem_dose_atn` (default **0**, `get_parameters`)
   and `rn_chem = max(rn − rnm, 0)` is the chemical excito-repellency. `f = 0` gives

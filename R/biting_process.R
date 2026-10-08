@@ -211,10 +211,17 @@ simulate_bites <- function(
       # Q0 here is the anthropophagy of species s_i, not the ATN coverage Q0_atn.
       # Zero whenever ATNs are off (delta_atn = 0).
       xi <- f / (1 - Z) * Q0 * kernels$delta_atn * kernels$p_contact
+      # Dosed-infection share (SI eq:varepsilon): the probability that a successful feed
+      # on a human results in exposure, eps = p_A * Phi_B * sum_k U^k s_N^k / sum_h pi_h w_h.
+      # The numerator is delta_atn * s_feed. The denominator sum_h pi_h w_h equals
+      # (W - (1 - Q0)) / Q0 (SI eq:W), and is computed here directly. eps splits the force
+      # of infection in C++ (passed in the delta_atn slot); xi above keeps the
+      # unconditional delta_atn. Zero whenever ATNs are off.
+      eps <- kernels$delta_atn * kernels$s_feed / sum(.pi * p_bitten$prob_bitten_survives)
       if (isTRUE(parameters$atn_debug)) {
         # Diagnostic: render the exact per-species inputs to the ATN exposure
         # pathway so a region's exposed fraction can be reconciled with xi.
-        # (a, W, Z, delta_atn, p_contact, xi; f/foim/mu already rendered.)
+        # (a, W, Z, delta_atn, p_contact, xi, s_feed, eps; f/foim/mu already rendered.)
         renderer$render(paste0('dbg_a_', species_name),         a,                 timestep)
         renderer$render(paste0('dbg_W_', species_name),         W,                 timestep)
         renderer$render(paste0('dbg_Z_', species_name),         Z,                 timestep)
@@ -222,13 +229,15 @@ simulate_bites <- function(
         renderer$render(paste0('dbg_delta_atn_', species_name), kernels$delta_atn, timestep)
         renderer$render(paste0('dbg_p_contact_', species_name), kernels$p_contact, timestep)
         renderer$render(paste0('dbg_xi_', species_name),        xi,                timestep)
+        renderer$render(paste0('dbg_s_feed_', species_name),    kernels$s_feed,    timestep)
+        renderer$render(paste0('dbg_eps_', species_name),       eps,               timestep)
       }
       adult_mosquito_model_update(
         models[[s_i]]$.model,
         mu,
         foim,
-        xi,  # exposure rate, passed to C++ as av_da
-        kernels$delta_atn,
+        xi,   # exposure rate, passed to C++ as av_da
+        eps,  # dosed-infection share, passed to C++ as delta_atn
         kernels$dn_atn,
         kernels$Lambda0_t,
         kernels$Lambda_i,
@@ -293,7 +302,7 @@ calculate_infectious_compartmental <- function(solver_states, parameters) {
 }
 
 # Compute per-timestep ATN kernel scalars and vectors (v3 lines 773-864 + 430-467).
-# Returns: Q_t, delta_atn, p_contact, dn_atn, Lambda0_t, Lambda_i (len deltaqp1),
+# Returns: Q_t, delta_atn, p_contact, s_feed, dn_atn, Lambda0_t, Lambda_i (len deltaqp1),
 #          rho_i (len deltaqp1), B_post (len spor_len).
 # Lambda_i[1] is always foim (baseline; no Hill decay for unexposed compartment).
 compute_atn_kernels <- function(timestep, parameters, foim, species) {
@@ -364,11 +373,16 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
   # is SI eq:Q_A. The retry inflation 1/(1 - Z) is NOT applied here; it enters through
   # the attempt rate f_A in simulate_bites (SI eq:fA). This replaces the former
   # contact_factor, which divided p_C by (1 - rnm) in place of the retry inflation.
+  # --- s_feed: mean probability a mosquito feeds and survives, per feeding attempt on a
+  # human under an ATN (SI s_N in eq:varepsilon), averaged over distribution events with
+  # the same coverage weights, since s_N also depends on net age. simulate_bites uses it
+  # for the dosed-infection share epsilon.
   # Source rn/rnm/dn0/gamman by matching each t0_atn to its bednet schedule row.
-  # Falls back to 1 when no bednet schedule or no row match.
+  # Both fall back to 1 when no bednet schedule or no row match.
   f_chem <- if (is.null(parameters$chem_dose_atn)) 0 else parameters$chem_dose_atn
-  p_contact <- if (is.null(parameters$bednet_timesteps)) {
-    1
+  if (is.null(parameters$bednet_timesteps)) {
+    pc_each <- rep(1, length(Q_each))
+    sn_each <- rep(1, length(Q_each))
   } else {
     bed_idx  <- match(t0, parameters$bednet_timesteps)
     idx_safe <- ifelse(!is.na(bed_idx), bed_idx, 1L)  # safe subscript; unmatched overridden below
@@ -386,10 +400,14 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
     pc_each <- ifelse(!is.na(bed_idx),
                       pmax(sn_e + rnm_e + f_chem * rn_chem, 0),  # p_C(t - t0_k)
                       1)
-
-    if (Q_t > 0) sum(Q_each * pc_each) / Q_t else 1
+    sn_each <- ifelse(!is.na(bed_idx), pmax(sn_e, 0), 1)    # s_N(t - t0_k)
   }
+  p_contact <- if (Q_t > 0) sum(Q_each * pc_each) / Q_t else 1
+  s_feed    <- if (Q_t > 0) sum(Q_each * sn_each) / Q_t else 1
 
+  # p_A * Phi_B * U, unconditional on the outcome of the attempt. Enters both xi and the
+  # numerator of the dosed-infection share eps (built in simulate_bites); it is no longer
+  # passed to C++ as the infection-split share itself.
   delta_atn <- parameters$p_atn * parameters$phi_bednets[[species]] * Q_t
 
   # --- Bompard TRA -> field TBA transform ---
@@ -451,6 +469,7 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
     Q_t            = Q_t,
     delta_atn      = delta_atn,
     p_contact      = p_contact,
+    s_feed         = s_feed,
     dn_atn         = dn_atn,
     Lambda0_t      = Lambda0_t,
     Lambda_i       = Lambda_i,
