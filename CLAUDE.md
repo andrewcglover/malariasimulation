@@ -55,73 +55,44 @@ Indices:
   latent compartment cannot represent time-since-infection, which `rho_i` and `B_post` (below) need.
 
 **Exposure coupling:** `delta_atn = p_atn * phi_atn * Q_atn_t`, the probability a mosquito meets
-the antimalarial on an attempted bite. A mosquito biting an ATN host (rate `av*delta_atn`) moves
+the antimalarial on an attempted bite. A mosquito exposed to an ATN (rate `xi`, below) moves
 into exposure compartment 2. `Q_atn_t` = total ATN coverage across distribution events.
 
-**Repellency / pyrethroid-resistance coupling — DESIGN DECISION (revised 2026-06-19).**
-The exposure rate is `av_da = a * delta_atn * contact_factor` (see `R/biting_process.R`,
-`compute_atn_kernels`). The three terms are:
+**Exposure rate — DESIGN DECISION (revised 2026-10-08; implements SI eq:xi).**
+The rate passed to C++ (as the `av_da` argument) is computed in `simulate_bites`
+(`R/biting_process.R`) as `xi = f/(1 − Z) · Q0 · delta_atn · p_contact`, i.e. SI `ξ = f_A Q_A`:
 
-- **`a`** (human blood-meal rate, `R/biting_process.R:118`) carries the full feeding-cycle
-  adjustment from `W`/`Z`, embedding per-individual `sn`/`rn`/`dn` via `prob_survives_bednets` /
-  `prob_repelled_bednets`. Pyrethroid resistance ↑ ⇒ `rn`/`dn` ↓ ⇒ `a` ↑ ⇒ more ATN exposure.
-- **`delta_atn`** (the *fraction* `p_atn * phi_bednets * Q_t`) carries no repellency term — it is
-  the net-user coverage exposure probability, not a rate. The FOI-splitting terms (`Lambda_i`,
-  `Lambda0_t`) remain tied to `a` (feeding) because *infection requires a blood meal*.
-- **`contact_factor`** (new, 2026-06-19; corrected formula 2026-06-19) corrects the exposure *rate*
-  for mosquitoes that **physically touch the net but do not feed**: barrier-repelled mosquitoes
-  (prob `rnm`, the untreated-net floor) touch the net → pick up the drug, so they belong in the
-  exposed pool. Only **chemical excito-repellency** (`rn − rnm`, the insecticide-driven part) keeps
-  a mosquito off the net entirely. Formula (bounded, excludes pyrethroid-killed):
-  `contact_factor = (sn + rnm) / (1 − rnm)`, where `sn = 1 − rn − dn`, `rn_chem = rn − rnm`.
-  - Denominator `(1 − rnm)` is the untreated-net floor (~0.76) — always bounded, never collapses.
-    *Previous formula* `(sn + rnm)/sn` was buggy: `/sn → 0` for insecticidal nets inflated Pyr-ATN
-    exposure above ATN, inverting the correct ordering. Fixed to `/(1 − rnm)`.
-  - Numerator `(sn + rnm) = 1 − rn_chem − dn` excludes pyrethroid-killed mosquitoes (`dn`); a
-    dead mosquito cannot transmit.
-  - Scaling the realized `a` (not a no-net `a0`) preserves IRS + historical-net coupling for free:
-    IRS and historical non-ATN bednets already suppress `a` via `W`/`Z`; only the ATN net's own
-    repellency/mortality is re-applied via `contact_surv`. No double-counting.
-  - Non-insecticidal ATN (`rn0 = rnm`, `dn0 = 0`): `(1−rnm)/(1−rnm) = 1/(1−rnm)` (constant,
-    same as before — main ATN result unchanged by the formula correction).
-  - Pyr-ATN fresh net: `(1 − rn0 − dn0 + rnm)/(1 − rnm)`; decays to `1/(1 − rnm)` as insecticide
-    wanes (`rn → rnm`, `dn → 0`). Correctly `< 1/(1−rnm)` (Pyr-ATN < ATN, ordering restored).
-    Derived dynamically per event from the bednet schedule (`parameters$bednet_rn`/`rnm`/`dn0`/
-    `gamman`, matched by `t0_atn`).
-  - ATN-off (`delta_atn = 0`): `av_da = 0` regardless — **baseline untouched**.
-  - No `set_bednets` call: falls back to `contact_factor = 1`.
-  - **Only `av_da` is affected.** `foim` (→ `Sv[0]`), EIR (`calculate_eir`), `mu`/`f`, the
-    aquatic model, and total mosquito density are all unchanged. `Sv→Ev` infection rates stay
-    feed-based; the extra contacts from `contact_factor` flow into `Sv_exposed` only.
+- **`f/(1 − Z)`** is the attempt rate `f_A` (SI eq:fA): feeding cycles per day × expected attempts
+  per cycle `1/(1 − Z)`. `f` (`blood_meal_rate`) and `Z` (`average_p_repelled`) come from the feeding
+  cycle already in `simulate_bites`; `Z` is population-level, so it includes historical ITNs and IRS.
+- **`Q0`** is the mosquito anthropophagy `parameters$Q0[[s_i]]`, the share of *attempts* on humans.
+  **Trap:** inside `compute_atn_kernels` the local `Q0` is the ATN coverage `Q0_atn`; that is why
+  `xi` is built at the call site, not in the kernel.
+- **`delta_atn`** (`p_atn * phi_bednets[[s]] * Q_t`) is also passed to C++ separately as the
+  FOI-split share (ε); that second use is review point 4 (conditional form), not part of `xi`.
+- **`p_contact`** (`compute_atn_kernels`) is the coverage-weighted mean over distribution events of
+  `p_C = sn + rnm + f·rn_chem` (`sn = 1 − rn − dn`, `rn_chem = max(rn − rnm, 0)`), so
+  `Q0 · delta_atn · p_contact` is SI eq:Q_A including its sum over events. Fed survivors and
+  barrier-repelled mosquitoes contact the net; pyrethroid-killed (`dn`) are excluded. Non-insecticidal
+  ATN: `p_C = 1` at every net age. Fresh Pyr-ATN: `sn + rnm < 1` (Pyr-ATN < ATN ordering), rising to 1
+  as the insecticide wanes. No `set_bednets` call, or no bednet row matching `t0_atn`: falls back to 1.
+- ATN-off (`delta_atn = 0`) ⇒ `xi = 0`: **baseline untouched**. Only the exposure rate changed:
+  `foim` (→ `Sv[0]`), EIR, `mu`/`f`, the aquatic model and total density are unaffected.
+- Debug renders (`atn_debug = TRUE`): `dbg_p_contact_*` and `dbg_xi_*` (were `dbg_contact_factor_*`,
+  `dbg_av_da_*`); read by `dev/segou_atn_debug.R`.
 
-**PENDING PROPOSAL — feeding-cycle-derived `contact_factor` (2026-07-21, NOT yet implemented).**
-The `(sn + rnm)/(1 − rnm)` denominator above is a heuristic proxy and is not principled: code
-analysis of the feeding cycle shows `a` carries almost none of the ATN net's own *survival*
-suppression (elasticity `∂ln a/∂ln sn ≈ 0.03` at gambiae defaults — `sn` reaches `a` only via
-`W→d`, `rn` only via `Z→a`, both scaled by `χφg`), so dividing by a survival-scale quantity
-(`1 − rnm`, or the old `/sn`) over-corrects. Deriving the contact rate straight from the feeding
-cycle (attempts/time `= a/(1−Z)`; viable-contact prob/attempt `= χ·g·φ·p_contact`; `δ`'s coverage
-& `φ` cancel — no double-count) gives
-`contact_factor = (χ / (d·(1−Z))) · p_contact`, where `p_contact = sn + rnm + f·(rn−rnm)+`
-(NUMERATOR UNCHANGED), `χ = Q0`, `d = 1−(1−χ)/W` (realized human blood index), `Z` = population
-repellency. Properties: no `sn`/`rnm` in denominator; `→ p_contact` when `Z→0` (the "no denominator"
-limit); boost above `p_contact` is purely repellency-retry-driven; bounded exposure (`a·c` finite as
-`Z→1`); Pyr-ATN < ATN preserved. **Changes ALL ATN-on results incl. default `f=0`** (~16% lower
-headline ATN drug exposure: new `c≈1.11` vs current `1.32` for non-insec ATN) → full c24med re-run
-needed; NOT baseline-preserving. Full derivation + numbers: `dev/reference/ATN_contact_factor_proposal.tex`.
-Plumbing: `W`/`Z`/`d` live in `simulate_bites`, not passed to `compute_atn_kernels` yet — pass them
-in or move the `c` line. Open choices when implementing: (a) keep `χ/d` correction or approx `≈1`
-(pure `(1−rnm)→(1−Z)`); (b) make selectable (`contact_model = "barrier"|"cycle"`) vs replace outright.
-Awaiting user review of the .tex before any code change.
-Reconciles with Griffin 2010 SI (Text S2, the "biting rate on humans is" eqn, `α = d·a`): the
-prefactor `χ/(d(1−Z))` is exactly (human *attempt* rate `χa/(1−Z)`)/(Griffin human *biting* rate
-`d·a`), so `α·c = (χa/(1−Z))·p_contact` = attempt rate × viable-contact fraction (`d` cancels). `c`
-generalizes Griffin's IRS "effective biting rate" inflation (`y_i/w_i`, bite-before-death) to net
-*contacts* (need not feed; carries the `1/(1−Z)` retry factor Griffin's feed-only form lacks).
-**Verified against Griffin SI Text S2** (eqns transcribed & confirmed 2026-07-22): `f_R=1/(δ1+δ2)`,
-`δ1=δ10/(1−Z)`; `Q=1−(1−Q0)/W`; `α=Q·f_R`; IRS inflation `y_i/w_i`. Griffin `.doc` eqns are embedded
-MathType — read prose via `antiword`; mapping also matches code (`blood_meal_rate=a`,
-`average_p_successful=W`, `average_p_repelled=Z`, `.human_blood_meal_rate=d·a`).
+**History (replaced outright 2026-10-08, no switch; old behaviour = commit `5fdaa29`).** Was
+`av_da = a · delta_atn · contact_factor`, `contact_factor = p_C/(1 − rnm)` (2026-06-19; the first
+version divided by `sn`, which inverted the Pyr-ATN < ATN ordering). Two errors: `a = Q·f_R` counts
+human *meals* (`Q`) rather than *attempts* (`Q0`), and `1/(1 − rnm)` stood in for the retry inflation
+as if every attempt were on an ATN user. Ratio new/old `= (Q0/Q)(1 − rnm)/(1 − Z)`: −15.4% for pure
+ATN at the illustrative config of `dev/reference/ATN_contact_factor_proposal.tex` (`U = 0.5`, ATN the
+only net; the "~16%" quoted earlier was rounding). The proposal's `c = (χ/(d(1 − Z)))·p_contact`
+gives the identical rate (`a·delta_atn·c`, the `Q` in `a` cancels `d = Q`). Every ATN-on result moves,
+so the change rides on the single c24med re-run. Griffin 2010 SI Text S2 mapping verified 2026-07-22:
+`f_R = 1/(δ1 + δ2)`, `δ1 = δ10/(1 − Z)`, `Q = 1 − (1 − Q0)/W`, `α = Q·f_R`; code `blood_meal_rate` =
+`f_R`, `average_p_successful` = `W`, `average_p_repelled` = `Z`, `.human_blood_meal_rate` = `α`
+(Griffin `.doc` eqns are embedded MathType — read prose via `antiword`).
 
 **Out-of-scope note:** the leMenach/Griffin death-rate formula `p1 = p1_0·W/(1 − Z·p1_0)` means
 a repellent-only net (ATN, `dn0=0`, `rn=0.24`) lowers `mu` relative to no net, so total mosquito
@@ -347,21 +318,18 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   is respected and NOT overwritten. For logistic retention, a warning is issued and
   `lambda_atn = 1/bednet_logistic_half_life` is used. `compute_atn_kernels` falls back to
   `lambda_atn=0` (no waning) if no `set_bednets` call has been made. Tests in §12e.
-- **`contact_factor` sourcing (added 2026-06-19; formula corrected 2026-06-19).** `compute_atn_kernels`
-  reads `rn`/`rnm`/`dn0`/`gamman` for each ATN event via `match(t0_atn, parameters$bednet_timesteps)`.
-  In the Mali pipeline every ATN event matches exactly one bednet row (same `timesteps` vector,
-  `mali_projection_run.R:248-258`). Formula: `(sn_e + rnm_e) / (1 − rnm_e)`, where
-  `sn_e = 1 − rn_e − dn_e`, then coverage-weighted across events. Numerator excludes killed (`dn`);
-  denominator is the untreated-net floor `(1 − rnm)` (bounded, ~0.76).
-  *Previous formula `(sn+rnm)/sn` was buggy*: `/sn` blows up for insecticidal nets and inverted
-  Pyr-ATN vs ATN exposure ordering; fixed by changing denominator to `(1 − rnm)`.
-  If `match` returns NA (edge case:
-  t0_atn not in bednet schedule), `contact_factor` falls back to 1 for that event. Tests in §12f.
-- **`chem_dose_atn` sensitivity knob (added 2026-06-23).** Generalises the numerator to
-  `(sn + rnm + f·rn_chem) / (1 − rnm)`, where `f = chem_dose_atn` (default **0**, `get_parameters`)
-  and `rn_chem = max(rn − rnm, 0)` is the chemical excito-repellency. `f = 0` reproduces the
-  original `(sn + rnm)/(1 − rnm)` (so all baselines/existing outputs are unchanged); `f = 1` lets
-  every repelled-but-not-killed mosquito touch-and-dose → `(1 − dn)/(1 − rnm)`. Models the
+- **`p_contact` sourcing (was `contact_factor`; denominator dropped 2026-10-08, see §3).**
+  `compute_atn_kernels` reads `rn`/`rnm`/`dn0`/`gamman` for each ATN event via
+  `match(t0_atn, parameters$bednet_timesteps)`. In the Mali pipeline every ATN event matches exactly
+  one bednet row (same `timesteps` vector, `mali_projection_run.R:248-258`). Per event
+  `p_C = sn_e + rnm_e + f·rn_chem`, `sn_e = 1 − rn_e − dn_e`, then coverage-weighted across events;
+  no denominator (the retry inflation is `1/(1 − Z)` in `xi`). If `match` returns NA (edge case:
+  t0_atn not in bednet schedule), `p_C` falls back to 1 for that event. Tests in §12f.
+- **`chem_dose_atn` sensitivity knob (added 2026-06-23).** Generalises `p_C` to
+  `sn + rnm + f·rn_chem`, where `f = chem_dose_atn` (default **0**, `get_parameters`)
+  and `rn_chem = max(rn − rnm, 0)` is the chemical excito-repellency. `f = 0` gives
+  `sn + rnm`; `f = 1` lets
+  every repelled-but-not-killed mosquito touch-and-dose → `1 − dn`. Models the
   uncertainty that chemically-repelled mosquitoes may still briefly contact the net and pick up the
   antimalarial. **Only affects `pyr_atn`/`pyr_cfp_atn`** (the only arms with `rn > rnm`; pure `atn`
   has `rn ≈ rnm` so `rn_chem ≈ 0`, and non-ATN arms have `delta_atn = 0`). R-only change — no C++
@@ -380,7 +348,7 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   - `cd_cov` / `cd_floor` math is **unchanged** — it defines the inter-campaign top-up target
     regardless of what product campaigns distribute. The sawtooth (build via CD → collapse at MC
     → rebuild) falls out naturally once `Q_atn_t` sees the displacement events.
-  - `contact_factor`, `lambda_atn` decay, `delta_atn`, Hill/Bompard kernels, C++ ODE: all unaffected.
+  - `p_contact`, `lambda_atn` decay, `delta_atn`, Hill/Bompard kernels, C++ ODE: all unaffected.
 - **`n_use_atn` render output (added 2026-06-23).** `compute_atn_kernels` returns `Q_t` (total ATN
   coverage at the current timestep). `simulate_bites` (`R/biting_process.R`) renders
   `n_use_atn = Q_t * human_population` once per timestep (gated on `s_i == 1L` since `Q_t` is

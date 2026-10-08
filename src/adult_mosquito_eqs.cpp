@@ -89,14 +89,14 @@ integration_function_t create_eqs(AdultMosquitoModel& model) {
         // --- scalar shorthands ---
         const double mu      = model.mu;
         const double foim    = model.foim;       // Lambda (baseline FOI)
-        const double av_da   = model.av_da;      // a * delta_atn  (rate, day^-1)
+        const double av_da   = model.av_da;      // exposure rate xi = f_A * Q_A (SI eq:xi; day^-1)
         const double da      = model.delta_atn;  // fraction, for (1-da) terms
         const double dn      = model.dn_atn;
         const double L0      = model.Lambda0_t;  // coverage-weighted reduced FOI
         const double kappa   = model.kappa;
         const double rho     = model.rho;
 
-        const double av_da_s = av_da * (1.0 - dn);   // a*delta_atn*(1-dn)
+        const double av_da_s = av_da * (1.0 - dn);   // xi*(1-dn)
         const double da_s    = da    * (1.0 - dn);    // delta_atn*(1-dn)
 
         // Clamp pupa count via nn for betaa (aquatic state P is index 2).

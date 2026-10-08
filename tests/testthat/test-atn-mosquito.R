@@ -328,28 +328,28 @@ test_that('set_bednets with logistic retention warns and sets lambda_atn = 1/hal
   expect_equal(parameters$lambda_atn, 1 / 1500, tolerance = 1e-12)
 })
 
-# ── 12f: contact_factor — barrier-repelled mosquitoes get dosed ───────────────
+# ── 12f: exposure rate xi = f_A * Q_A, and the contact probability p_contact ──
 #
-# contact_factor = (sn + rnm) / (1 - rnm) scales av_da to include mosquitoes that
-# physically touch the net (barrier-repelled, prob rnm) but are not fed-and-survived.
-# Only chemical excito-repellency (rn - rnm) prevents net contact entirely.
-# Denominator (1 - rnm) is the untreated-net floor: fixed ~0.76, never collapses.
-# Numerator (sn + rnm) excludes pyrethroid-killed mosquitoes (dn); they cannot transmit.
-# All tests call compute_atn_kernels() directly with set_bednets set up so that
-# t0_atn matches a bednet schedule row (as in the Mali pipeline).
+# p_contact is the coverage-weighted mean of p_C = sn + rnm (+ f * rn_chem), the
+# probability a mosquito survives and contacts the net per attempt on an ATN user.
+# Fed survivors and barrier-repelled mosquitoes (rnm) contact the net; pyrethroid-killed
+# mosquitoes (dn) are excluded. The retry inflation 1/(1 - Z) is applied through the
+# attempt rate f_A = f / (1 - Z) in simulate_bites, not in p_contact (SI eq:fA, eq:Q_A,
+# eq:xi). The kernel tests call compute_atn_kernels() directly with set_bednets set up so
+# that t0_atn matches a bednet schedule row (as in the Mali pipeline).
 
-test_that('compute_atn_kernels: contact_factor = 1 when no set_bednets called', {
+test_that('compute_atn_kernels: p_contact = 1 when no set_bednets called', {
   # NULL parameters$bednet_timesteps -> fallback to 1 (no adjustment).
   parameters <- get_parameters(list(
     p_atn = 0.9, Q0_atn = 0.8, t0_atn = 1L, lambda_atn = 0
   ))
   parameters <- set_equilibrium(parameters, 50.)
   k <- compute_atn_kernels(100L, parameters, parameters$init_foim, 1L)
-  expect_equal(k$contact_factor, 1)
+  expect_equal(k$p_contact, 1)
 })
 
-test_that('compute_atn_kernels: contact_factor = 1/(1-rnm) for non-insecticidal ATN', {
-  # rn0 = rnm, dn0 = 0: sn = 1-rnm (constant); (sn+rnm)/sn = 1/(1-rnm).
+test_that('compute_atn_kernels: p_contact = 1 for non-insecticidal ATN', {
+  # rn0 = rnm, dn0 = 0: sn = 1 - rnm, so p_C = sn + rnm = 1 at every net age.
   rnm_val <- 0.24 - 1e-9
   parameters <- get_parameters(list(
     p_atn = 0.9, Q0_atn = 0.8, t0_atn = 100L, lambda_atn = 0
@@ -365,13 +365,13 @@ test_that('compute_atn_kernels: contact_factor = 1/(1-rnm) for non-insecticidal 
   )
   parameters <- set_equilibrium(parameters, 50.)
   k <- compute_atn_kernels(200L, parameters, parameters$init_foim, 1L)
-  expect_equal(k$contact_factor, 1 / (1 - rnm_val), tolerance = 1e-9)
+  # rnm sits 1e-9 below rn (set_bednets needs rnm < rn), so p_C = 1 - 1e-9.
+  expect_equal(k$p_contact, 1, tolerance = 1e-8)
 })
 
-test_that('compute_atn_kernels: contact_factor for fresh Pyr-ATN matches (sn+rnm)/(1-rnm) at dt=0', {
-  # At dt=0, rn(0)=rn0, dn(0)=dn0, sn(0)=1-rn0-dn0.
-  # contact_factor = (sn+rnm)/(1-rnm): bounded, excludes killed (dn), preserves coupling.
-  # Must be < 1/(1-rnm) (the non-insecticidal ATN value): Pyr-ATN < ATN ordering.
+test_that('compute_atn_kernels: p_contact for fresh Pyr-ATN matches sn + rnm at dt=0', {
+  # At dt=0, rn(0)=rn0, dn(0)=dn0, sn(0)=1-rn0-dn0, so p_C = sn + rnm (f = 0).
+  # Must be < 1 (the non-insecticidal ATN value): Pyr-ATN < ATN ordering.
   rn0_val <- 0.5; rnm_val <- 0.24; dn0_val <- 0.3
   parameters <- get_parameters(list(
     p_atn = 0.9, Q0_atn = 0.8, t0_atn = 100L, lambda_atn = 0
@@ -388,16 +388,13 @@ test_that('compute_atn_kernels: contact_factor for fresh Pyr-ATN matches (sn+rnm
   parameters <- set_equilibrium(parameters, 50.)
   k <- compute_atn_kernels(100L, parameters, parameters$init_foim, 1L)
   sn_expected <- 1 - rn0_val - dn0_val
-  cf_expected <- (sn_expected + rnm_val) / (1 - rnm_val)   # bounded denominator
-  expect_equal(k$contact_factor, cf_expected, tolerance = 1e-9)
-  # Pyr-ATN contact_factor < non-insecticidal ATN value (ordering check)
-  expect_lt(k$contact_factor, 1 / (1 - rnm_val))
-  # factor < 1: pyrethroid removes more contacts than barrier-repelled adds back
-  expect_lt(k$contact_factor, 1)
+  expect_equal(k$p_contact, sn_expected + rnm_val, tolerance = 1e-9)
+  # Pyr-ATN p_contact < non-insecticidal ATN value of 1 (ordering check)
+  expect_lt(k$p_contact, 1)
 })
 
-test_that('compute_atn_kernels: contact_factor decays toward 1/(1-rnm) as Pyr-ATN ages', {
-  # With small gamman, rn->rnm and dn->0 quickly, so contact_factor -> 1/(1-rnm).
+test_that('compute_atn_kernels: p_contact rises toward 1 as Pyr-ATN ages', {
+  # With small gamman, rn->rnm and dn->0 quickly, so p_C -> (1 - rnm) + rnm = 1.
   rnm_val <- 0.24
   parameters <- get_parameters(list(
     p_atn = 0.9, Q0_atn = 0.8, t0_atn = 100L, lambda_atn = 0
@@ -413,7 +410,68 @@ test_that('compute_atn_kernels: contact_factor decays toward 1/(1-rnm) as Pyr-AT
   )
   parameters <- set_equilibrium(parameters, 50.)
   k <- compute_atn_kernels(600L, parameters, parameters$init_foim, 1L)
-  expect_equal(k$contact_factor, 1 / (1 - rnm_val), tolerance = 1e-6)
+  expect_equal(k$p_contact, 1, tolerance = 1e-6)
+})
+
+test_that('simulate_bites passes xi = f_A * Q_A to the adult mosquito model', {
+  # Checks the exposure rate against the second form of SI eq:fA,
+  # f_A = 1 / (delta_10 + (1 - Z) * delta_2), so it is not the same algebra as the code.
+  population <- 4
+  timestep <- 5
+  parameters <- get_parameters(list(human_population = population))
+  variables <- create_variables(parameters)
+  variables$zeta <- individual::DoubleVariable$new(c(.2, .3, .5, .9))
+  variables$infectivity <- individual::DoubleVariable$new(c(.6, 0, .2, .3))
+  age <- c(20, 24, 5, 39) * 365
+
+  # Uniform per-human probabilities, so Z = Q0 * p_rep since sum(pi) = 1
+  p_rep <- 0.1
+  mockery::stub(simulate_bites, 'prob_bitten', list(
+    prob_bitten_survives = rep(0.8, population),
+    prob_bitten          = rep(0.9, population),
+    prob_repelled        = rep(p_rep, population)
+  ))
+  kernels <- list(
+    Q_t       = 0.5,
+    delta_atn = 0.3,
+    p_contact = 0.85,
+    dn_atn    = 0,
+    Lambda0_t = 0,
+    Lambda_i  = rep(0, parameters$deltaq + 1L),
+    rho_i     = rep(1, parameters$deltaq + 1L),
+    B_post    = rep(0, parameters$spor_len)
+  )
+  mockery::stub(simulate_bites, 'compute_atn_kernels', kernels)
+  mockery::stub(simulate_bites, 'rpois', 0)
+  update_mock <- mockery::mock()
+  mockery::stub(simulate_bites, 'adult_mosquito_model_update', update_mock)
+
+  models <- parameterise_mosquito_models(parameters, timestep)
+  solvers <- parameterise_solvers(models, parameters)
+  simulate_bites(
+    individual::Render$new(timestep),
+    solvers,
+    models,
+    variables,
+    create_events(parameters),
+    age,
+    parameters,
+    timestep,
+    LaggedValue$new(12.5, .001),
+    list(LaggedValue$new(12, 10))
+  )
+
+  Q0      <- parameters$Q0[[1]]
+  Z       <- Q0 * p_rep
+  delta10 <- parameters$foraging_time[[1]]
+  delta2  <- 1 / parameters$blood_meal_rates[[1]] - delta10
+  f_A     <- 1 / (delta10 + (1 - Z) * delta2)
+  Q_A     <- Q0 * kernels$delta_atn * kernels$p_contact
+
+  args <- mockery::mock_args(update_mock)[[1]]
+  expect_equal(args[[4]], f_A * Q_A, tolerance = 1e-12)
+  # the infection-split share is passed through unchanged
+  expect_equal(args[[5]], kernels$delta_atn)
 })
 
 # ── §12g: displacement events (atn_displace_t0/Q0) ───────────────────────────

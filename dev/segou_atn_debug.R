@@ -4,7 +4,7 @@
 #   Goal: localize why Ségou shows the lowest ATN-exposed mosquito fraction
 #   of any Mali region in the pure `atn` arm. Renders the exact per-species
 #   inputs to the ATN exposure pathway (dbg_*) so each region's exposed
-#   fraction can be reconciled against av_da = a * delta_atn * contact_factor.
+#   fraction can be reconciled against xi = f / (1 - Z) * Q0 * delta_atn * p_contact (SI eq:xi).
 #
 #   Run from the FORK ROOT:
 #       source("dev/segou_atn_debug.R")
@@ -95,7 +95,7 @@ saveRDS(list(
 message("Saved: ", out)
 
 # ---------------------------------------------------------------------
-# Summary (future window): is av_da region-uniform within each arm?
+# Summary (future window): is xi region-uniform within each arm?
 # ---------------------------------------------------------------------
 fy <- n_future_years
 for (sp in c("gambiae", "arabiensis", "funestus")) {
@@ -107,8 +107,8 @@ for (sp in c("gambiae", "arabiensis", "funestus")) {
       W           = mean(.data[[paste0("dbg_W_", sp)]]),
       Z           = mean(.data[[paste0("dbg_Z_", sp)]]),
       delta_atn   = mean(.data[[paste0("dbg_delta_atn_", sp)]]),
-      contact_fac = mean(.data[[paste0("dbg_contact_factor_", sp)]]),
-      av_da       = mean(.data[[paste0("dbg_av_da_", sp)]]),
+      p_contact   = mean(.data[[paste0("dbg_p_contact_", sp)]]),
+      xi          = mean(.data[[paste0("dbg_xi_", sp)]]),
       Sv_exp_frac = sum(.data[[paste0("Sv_exposed_", sp, "_count")]]) /
                     sum(.data[[paste0("Sv_unexposed_", sp, "_count")]] +
                         .data[[paste0("Sv_exposed_", sp, "_count")]]),

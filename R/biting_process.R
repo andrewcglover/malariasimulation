@@ -206,24 +206,28 @@ simulate_bites <- function(
         # Q_t is species-independent; render once as expected ATN holders.
         renderer$render('n_use_atn', kernels$Q_t * parameters$human_population, timestep)
       }
+      # Antimalarial exposure rate (SI eq:xi): xi = f_A * Q_A, with the attempt rate
+      # f_A = f / (1 - Z) (SI eq:fA) and Q_A = Q0 * delta_atn * p_contact (SI eq:Q_A).
+      # Q0 here is the anthropophagy of species s_i, not the ATN coverage Q0_atn.
+      # Zero whenever ATNs are off (delta_atn = 0).
+      xi <- f / (1 - Z) * Q0 * kernels$delta_atn * kernels$p_contact
       if (isTRUE(parameters$atn_debug)) {
         # Diagnostic: render the exact per-species inputs to the ATN exposure
-        # pathway so a region's exposed fraction can be reconciled with av_da.
-        # (a, W, Z, delta_atn, contact_factor, av_da; f/foim/mu already rendered.)
-        av_da <- a * kernels$delta_atn * kernels$contact_factor
-        renderer$render(paste0('dbg_a_', species_name),              a,                      timestep)
-        renderer$render(paste0('dbg_W_', species_name),              W,                      timestep)
-        renderer$render(paste0('dbg_Z_', species_name),              Z,                      timestep)
-        renderer$render(paste0('dbg_f_', species_name),              f,                      timestep)
-        renderer$render(paste0('dbg_delta_atn_', species_name),      kernels$delta_atn,      timestep)
-        renderer$render(paste0('dbg_contact_factor_', species_name), kernels$contact_factor, timestep)
-        renderer$render(paste0('dbg_av_da_', species_name),          av_da,                  timestep)
+        # pathway so a region's exposed fraction can be reconciled with xi.
+        # (a, W, Z, delta_atn, p_contact, xi; f/foim/mu already rendered.)
+        renderer$render(paste0('dbg_a_', species_name),         a,                 timestep)
+        renderer$render(paste0('dbg_W_', species_name),         W,                 timestep)
+        renderer$render(paste0('dbg_Z_', species_name),         Z,                 timestep)
+        renderer$render(paste0('dbg_f_', species_name),         f,                 timestep)
+        renderer$render(paste0('dbg_delta_atn_', species_name), kernels$delta_atn, timestep)
+        renderer$render(paste0('dbg_p_contact_', species_name), kernels$p_contact, timestep)
+        renderer$render(paste0('dbg_xi_', species_name),        xi,                timestep)
       }
       adult_mosquito_model_update(
         models[[s_i]]$.model,
         mu,
         foim,
-        a * kernels$delta_atn * kernels$contact_factor,  # av_da = contact rate * exposure probability
+        xi,  # exposure rate, passed to C++ as av_da
         kernels$delta_atn,
         kernels$dn_atn,
         kernels$Lambda0_t,
@@ -289,7 +293,7 @@ calculate_infectious_compartmental <- function(solver_states, parameters) {
 }
 
 # Compute per-timestep ATN kernel scalars and vectors (v3 lines 773-864 + 430-467).
-# Returns: delta_atn, dn_atn, Lambda0_t, Lambda_i (len deltaqp1),
+# Returns: Q_t, delta_atn, p_contact, dn_atn, Lambda0_t, Lambda_i (len deltaqp1),
 #          rho_i (len deltaqp1), B_post (len spor_len).
 # Lambda_i[1] is always foim (baseline; no Hill decay for unexposed compartment).
 compute_atn_kernels <- function(timestep, parameters, foim, species) {
@@ -347,19 +351,23 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
   rho0_t    <- rho - (rho - rho00) * P_bar
   dn_atn    <- parameters$dn0_atn * P_bar
 
-  # --- contact_factor: barrier-repelled mosquitoes (prob rnm) physically touch the
-  # net and pick up the drug; chemical excito-repellency (rn_chem = rn - rnm) normally
-  # prevents contact entirely. chem_dose_atn (= f, default 0) lets a fraction of the
-  # chemically-repelled group still touch-and-dose, so the ATN-exposure rate scales by
-  #   contact_factor = (sn + rnm + f*rn_chem) / (1 - rnm),  sn = 1 - rn - dn.
-  #   f = 0 -> (sn + rnm)/(1 - rnm)        (no chemically-repelled dose; original model)
-  #   f = 1 -> (sn + rn)/(1 - rnm) = (1 - dn)/(1 - rnm)  (all but pyrethroid-killed dose)
-  # Non-insecticidal ATN (rn0 = rnm, dn0 = 0): rn_chem ~ 0, so f is inconsequential and
-  #   contact_factor = 1 / (1 - rnm) for any f.
+  # --- p_contact: mean probability a mosquito survives and contacts the net, per feeding
+  # attempt on a human under an ATN (SI p_C). Fed survivors (sn) and barrier-repelled
+  # mosquitoes (rnm) contact the net; chemical excito-repellency (rn_chem = rn - rnm)
+  # normally prevents contact, and chem_dose_atn (= f, default 0) lets a fraction of that
+  # group still touch-and-dose:
+  #   p_C = sn + rnm + f*rn_chem,  sn = 1 - rn - dn.
+  # Pyrethroid-killed mosquitoes (dn) are excluded. Non-insecticidal ATN (rn0 = rnm,
+  # dn0 = 0): p_C = 1 at every net age, for any f.
+  # p_C depends on net age, so it is averaged over distribution events with coverage
+  # weights: p_contact = sum_k U^k p_C(t - t0_k) / U, so that Q0 * delta_atn * p_contact
+  # is SI eq:Q_A. The retry inflation 1/(1 - Z) is NOT applied here; it enters through
+  # the attempt rate f_A in simulate_bites (SI eq:fA). This replaces the former
+  # contact_factor, which divided p_C by (1 - rnm) in place of the retry inflation.
   # Source rn/rnm/dn0/gamman by matching each t0_atn to its bednet schedule row.
-  # Falls back to 1 (no adjustment) when no bednet schedule or no row match.
+  # Falls back to 1 when no bednet schedule or no row match.
   f_chem <- if (is.null(parameters$chem_dose_atn)) 0 else parameters$chem_dose_atn
-  contact_factor <- if (is.null(parameters$bednet_timesteps)) {
+  p_contact <- if (is.null(parameters$bednet_timesteps)) {
     1
   } else {
     bed_idx  <- match(t0, parameters$bednet_timesteps)
@@ -373,13 +381,13 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
     decay_e <- exp(-age / gam_e)                            # bednet_decay() inline
     rn_e    <- (rn0_e - rnm_e) * decay_e + rnm_e           # rn(dt): prob_repelled_bednets
     dn_e    <- dn0_e * decay_e                              # dn(dt): prob_survives_bednets
-    sn_e    <- 1 - rn_e - dn_e                              # feed-and-survive prob (no floor: not dividing by sn)
+    sn_e    <- 1 - rn_e - dn_e                              # feed-and-survive prob
     rn_chem <- pmax(rn_e - rnm_e, 0)                        # chemical excito-repellency (>= 0)
-    cf_each <- ifelse(!is.na(bed_idx),
-                      pmax(sn_e + rnm_e + f_chem * rn_chem, 0) / pmax(1 - rnm_e, 1e-6),  # (sn+rnm+f*rn_chem)/(1-rnm)
+    pc_each <- ifelse(!is.na(bed_idx),
+                      pmax(sn_e + rnm_e + f_chem * rn_chem, 0),  # p_C(t - t0_k)
                       1)
 
-    if (Q_t > 0) sum(Q_each * cf_each) / Q_t else 1
+    if (Q_t > 0) sum(Q_each * pc_each) / Q_t else 1
   }
 
   delta_atn <- parameters$p_atn * parameters$phi_bednets[[species]] * Q_t
@@ -442,7 +450,7 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
   list(
     Q_t            = Q_t,
     delta_atn      = delta_atn,
-    contact_factor = contact_factor,
+    p_contact      = p_contact,
     dn_atn         = dn_atn,
     Lambda0_t      = Lambda0_t,
     Lambda_i       = Lambda_i,
