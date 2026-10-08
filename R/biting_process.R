@@ -323,22 +323,28 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
               Q0 * exp(-lambda_atn * (timestep - t0)) * repl_factor)
   Q_t <- sum(Q_each)
 
-  # --- per-event drug-effect decay ---
+  # --- mean antimalarial potency over the net-age mixture ---
+  # P_each = exp(-gamma_atn * age_k) is the proportion of antimalarial remaining on nets
+  # from distribution event k (SI eq:potency); P_bar is its use-weighted mean over the
+  # events still in circulation (SI eq:potency_mean). Campaigns that have not yet fired
+  # carry Q_each = 0 and so contribute nothing.
+  #
+  # Each drug effect is linear in P_each, so the use-weighted mean of the effects (which
+  # this function previously computed, via Lambda0_each / rho0_each / dn_each) and the
+  # effect evaluated at the use-weighted mean potency are identical. The three quantities
+  # below are therefore the same numbers as before, now expressed through one named
+  # potency. Note this is NOT the same as evaluating potency at the mean net age, which
+  # would be biased low; the mixture is still averaged campaign by campaign.
   Lambda   <- foim
-  Lambda00 <- Lambda * (1 - parameters$B_max_post)   # pre- & post-infection blocking share b_max
   rho00    <- parameters$rho_frac * rho
   age      <- pmax(timestep - t0, 0)
-  Lambda0_each <- ifelse(timestep < t0, Lambda,
-                    Lambda - (Lambda - Lambda00) * exp(-parameters$gamma_atn * age))
-  rho0_each    <- ifelse(timestep < t0, rho,
-                    rho    - (rho    - rho00)    * exp(-parameters$gamma_atn * age))
-  dn_each      <- ifelse(timestep < t0, 0,
-                    parameters$dn0_atn * exp(-parameters$gamma_atn * age))
+  P_each   <- ifelse(timestep < t0, 0, exp(-parameters$gamma_atn * age))
+  P_bar    <- if (Q_t > 0) sum(Q_each * P_each) / Q_t else 0
 
-  # --- coverage-weighted averages ---
-  Lambda0_t <- if (Q_t > 0) sum(Q_each * Lambda0_each) / Q_t else Lambda
-  rho0_t    <- if (Q_t > 0) sum(Q_each * rho0_each)    / Q_t else rho
-  dn_atn    <- if (Q_t > 0) sum(Q_each * dn_each)      / Q_t else 0
+  # --- drug effects at the mean potency (zero-coverage cases fall out at P_bar = 0) ---
+  Lambda0_t <- Lambda * (1 - parameters$B_max_post * P_bar)   # pre- & post-infection share b_max
+  rho0_t    <- rho - (rho - rho00) * P_bar
+  dn_atn    <- parameters$dn0_atn * P_bar
 
   # --- contact_factor: barrier-repelled mosquitoes (prob rnm) physically touch the
   # net and pick up the drug; chemical excito-repellency (rn_chem = rn - rnm) normally
