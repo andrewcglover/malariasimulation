@@ -342,7 +342,8 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
   P_bar    <- if (Q_t > 0) sum(Q_each * P_each) / Q_t else 0
 
   # --- drug effects at the mean potency (zero-coverage cases fall out at P_bar = 0) ---
-  Lambda0_t <- Lambda * (1 - parameters$B_max_post * P_bar)   # pre- & post-infection share b_max
+  # Lambda0_t, the concurrent dose-and-infect FOI, is built below alongside the other
+  # blocking terms, since it needs the laboratory-to-field transform.
   rho0_t    <- rho - (rho - rho00) * P_bar
   dn_atn    <- parameters$dn0_atn * P_bar
 
@@ -396,14 +397,26 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
   # With defaults (atn_window=10, deltaq=10) this equals (i - 1.5), unchanged.
   # Compartment 1 = unexposed baseline; s[1] = 0 guard avoids (-0.5)^nH NaN
   # (value unused — Lambda_i[1] and rho_i[1] are overwritten to baseline below).
+  # Potency scales the FIELD-scale blocking, i.e. it multiplies the transformed value
+  # rather than the laboratory-scale input (SI eq:Lambda_i). Scaling on the laboratory
+  # scale instead would make the two blocking mechanisms return to baseline faster than
+  # exponentially while the EIP suppression, which has no transform, returned exactly
+  # exponentially, so one drug would imply three different effective half-lives.
   s    <- (seq_len(deltaqp1) - 1.5) * (parameters$atn_window / parameters$deltaq)
   s[1] <- 0
-  b_lab_pre   <- (1 - Lambda0_t / Lambda) *
+  b_lab_pre   <- parameters$B_max_post *
     (parameters$s_half_pre^parameters$nH_pre /
      (parameters$s_half_pre^parameters$nH_pre + s^parameters$nH_pre))
   b_field_pre <- if (parameters$use_bompard) bompard(b_lab_pre) else b_lab_pre
-  Lambda_i    <- Lambda * (1 - b_field_pre)
+  Lambda_i    <- Lambda * (1 - P_bar * b_field_pre)
   Lambda_i[1] <- Lambda   # baseline compartment always carries raw Lambda
+
+  # --- Lambda0_t: concurrent dose-and-infect FOI (exposure at s = 0, so no Hill decay) ---
+  # Previously built on the laboratory scale and never transformed, which left it on a
+  # different scale from Lambda_i in the compartment beside it. Now the s -> 0 limit of
+  # the expression above (SI eq:Lambda_0), so the two are continuous at s = 0.
+  b_field_0 <- if (parameters$use_bompard) bompard(parameters$B_max_post) else parameters$B_max_post
+  Lambda0_t <- Lambda * (1 - P_bar * b_field_0)
 
   # --- rho_i: per-compartment EIP rate ---
   rho_i <- if (parameters$use_eip_hill) {
@@ -416,11 +429,15 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
   rho_i[1] <- rho   # baseline compartment uses scalar rho (C++ ignores rho_i[1])
 
   # --- B_post: post-infection blocking probability ---
+  # Scaled by the mean potency on the field scale, as for pre-infection blocking
+  # (SI eq:Bpost). This factor was previously absent altogether, so an established
+  # infection could be cleared by a net that had lost nearly all of its antimalarial.
   t_post     <- (seq_len(spor_len) - 0.5) * parameters$dem / spor_len
   b_lab_post <- parameters$B_max_post *
     (parameters$s_half_post^parameters$nH_post /
      (parameters$s_half_post^parameters$nH_post + t_post^parameters$nH_post))
-  B_post <- if (parameters$use_bompard) bompard(b_lab_post) else b_lab_post
+  b_field_post <- if (parameters$use_bompard) bompard(b_lab_post) else b_lab_post
+  B_post <- P_bar * b_field_post
 
   list(
     Q_t            = Q_t,
