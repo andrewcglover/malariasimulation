@@ -330,13 +330,14 @@ test_that('set_bednets with logistic retention warns and sets lambda_atn = 1/hal
 
 # ── 12f: exposure rate xi, dosed-infection share eps, and the kernels p_contact, s_feed ──
 #
-# p_contact is the coverage-weighted mean of p_C = sn + rnm (+ f * rn_chem), the
-# probability a mosquito survives and contacts the net per attempt on an ATN user.
-# Fed survivors and barrier-repelled mosquitoes (rnm) contact the net; pyrethroid-killed
-# mosquitoes (dn) are excluded. The retry inflation 1/(1 - Z) is applied through the
-# attempt rate f_A = f / (1 - Z) in simulate_bites, not in p_contact (SI eq:fA, eq:Q_A,
-# eq:xi). s_feed is the coverage-weighted mean of s_N = 1 - rn - dn, the numerator term of
-# the dosed-infection share eps (SI eq:varepsilon). The kernel tests call
+# p_contact is the coverage-weighted mean of p_C = sn + omega * rn, the probability a
+# mosquito survives and contacts the net per attempt on an ATN user. Fed survivors all
+# contact the net, and a repelled mosquito contacts it with probability omega
+# (omega_atn, default 0.9) whatever repelled it; pyrethroid-killed mosquitoes (dn) are
+# excluded. The retry inflation 1/(1 - Z) is applied through the attempt rate
+# f_A = f / (1 - Z) in simulate_bites, not in p_contact (SI eq:fA, eq:Q_A, eq:xi).
+# s_feed is the coverage-weighted mean of s_N = 1 - rn - dn, the numerator term of the
+# dosed-infection share eps (SI eq:varepsilon). The kernel tests call
 # compute_atn_kernels() directly with set_bednets set up so that t0_atn matches a bednet
 # schedule row (as in the Mali pipeline).
 
@@ -351,33 +352,41 @@ test_that('compute_atn_kernels: p_contact = s_feed = 1 when no set_bednets calle
   expect_equal(k$s_feed, 1)
 })
 
-test_that('compute_atn_kernels: p_contact = 1, s_feed = 1 - rnm for non-insecticidal ATN', {
-  # rn0 = rnm, dn0 = 0: sn = 1 - rnm, so p_C = sn + rnm = 1 at every net age.
-  rnm_val <- 0.24 - 1e-9
+test_that('compute_atn_kernels: non-insecticidal ATN gives p_contact = 1 - (1 - omega) rn', {
+  # rn0 = rnm, dn0 = 0: sn = 1 - rn, so p_C = (1 - rn) + omega * rn at every net age.
+  rn_val  <- 0.24
+  rnm_val <- rn_val - 1e-9   # set_bednets needs rnm < rn
   parameters <- get_parameters(list(
     p_atn = 0.9, Q0_atn = 0.8, t0_atn = 100L, lambda_atn = 0
   ))
+  expect_equal(parameters$omega_atn, 0.9)
   n_sp <- length(parameters$species)
   parameters <- set_bednets(
     parameters,
     timesteps = 100L, coverages = 0.8, retention = 5000,
     dn0    = matrix(0,       nrow = 1, ncol = n_sp),
-    rn     = matrix(0.24,    nrow = 1, ncol = n_sp),
+    rn     = matrix(rn_val,  nrow = 1, ncol = n_sp),
     rnm    = matrix(rnm_val, nrow = 1, ncol = n_sp),
     gamman = 365 * 5
   )
   parameters <- set_equilibrium(parameters, 50.)
   k <- compute_atn_kernels(200L, parameters, parameters$init_foim, 1L)
-  # rnm sits 1e-9 below rn (set_bednets needs rnm < rn), so p_C = 1 - 1e-9.
-  expect_equal(k$p_contact, 1, tolerance = 1e-8)
+  expect_equal(k$p_contact, 1 - (1 - 0.9) * rn_val, tolerance = 1e-8)
   # Feeding through the net succeeds unless barrier-repelled, at every net age.
-  expect_equal(k$s_feed, 1 - 0.24, tolerance = 1e-8)
+  expect_equal(k$s_feed, 1 - rn_val, tolerance = 1e-8)
+  # p_C does not vary with the age of a non-insecticidal net.
+  k_old <- compute_atn_kernels(2000L, parameters, parameters$init_foim, 1L)
+  expect_equal(k_old$p_contact, k$p_contact, tolerance = 1e-8)
+  # omega = 1: every repelled mosquito contacts the net, so p_C = 1.
+  parameters$omega_atn <- 1
+  k1 <- compute_atn_kernels(200L, parameters, parameters$init_foim, 1L)
+  expect_equal(k1$p_contact, 1, tolerance = 1e-8)
 })
 
-test_that('compute_atn_kernels: fresh Pyr-ATN gives p_contact = sn + rnm, s_feed = sn', {
-  # At dt=0, rn(0)=rn0, dn(0)=dn0, sn(0)=1-rn0-dn0, so p_C = sn + rnm (f = 0).
-  # Must be < 1 (the non-insecticidal ATN value): Pyr-ATN < ATN ordering.
-  rn0_val <- 0.5; rnm_val <- 0.24; dn0_val <- 0.3
+test_that('compute_atn_kernels: fresh Pyr-ATN gives p_contact = sn + omega rn0, s_feed = sn', {
+  # At dt=0, rn(0)=rn0, dn(0)=dn0, sn(0)=1-rn0-dn0, so p_C = sn + omega * rn0.
+  # Must be below the non-insecticidal ATN value 1 - (1 - omega) * rnm: Pyr-ATN < ATN ordering.
+  rn0_val <- 0.5; rnm_val <- 0.24; dn0_val <- 0.3; omega <- 0.9
   parameters <- get_parameters(list(
     p_atn = 0.9, Q0_atn = 0.8, t0_atn = 100L, lambda_atn = 0
   ))
@@ -393,14 +402,18 @@ test_that('compute_atn_kernels: fresh Pyr-ATN gives p_contact = sn + rnm, s_feed
   parameters <- set_equilibrium(parameters, 50.)
   k <- compute_atn_kernels(100L, parameters, parameters$init_foim, 1L)
   sn_expected <- 1 - rn0_val - dn0_val
-  expect_equal(k$p_contact, sn_expected + rnm_val, tolerance = 1e-9)
-  # Pyr-ATN p_contact < non-insecticidal ATN value of 1 (ordering check)
-  expect_lt(k$p_contact, 1)
+  expect_equal(k$p_contact, sn_expected + omega * rn0_val, tolerance = 1e-9)
+  expect_lt(k$p_contact, 1 - (1 - omega) * rnm_val)   # ordering check
   expect_equal(k$s_feed, sn_expected, tolerance = 1e-9)
+  # omega = 1: every mosquito not killed contacts the net, so p_C = 1 - dn0.
+  parameters$omega_atn <- 1
+  k1 <- compute_atn_kernels(100L, parameters, parameters$init_foim, 1L)
+  expect_equal(k1$p_contact, 1 - dn0_val, tolerance = 1e-9)
 })
 
-test_that('compute_atn_kernels: aged Pyr-ATN gives p_contact -> 1, s_feed -> 1 - rnm', {
-  # With small gamman, rn->rnm and dn->0 quickly, so p_C -> (1 - rnm) + rnm = 1.
+test_that('compute_atn_kernels: aged Pyr-ATN gives p_contact -> 1 - (1 - omega) rnm, s_feed -> 1 - rnm', {
+  # With small gamman, rn->rnm and dn->0 quickly, so p_C -> (1 - rnm) + omega * rnm,
+  # the non-insecticidal ATN value.
   rnm_val <- 0.24
   parameters <- get_parameters(list(
     p_atn = 0.9, Q0_atn = 0.8, t0_atn = 100L, lambda_atn = 0
@@ -416,11 +429,11 @@ test_that('compute_atn_kernels: aged Pyr-ATN gives p_contact -> 1, s_feed -> 1 -
   )
   parameters <- set_equilibrium(parameters, 50.)
   k <- compute_atn_kernels(600L, parameters, parameters$init_foim, 1L)
-  expect_equal(k$p_contact, 1, tolerance = 1e-6)
+  expect_equal(k$p_contact, 1 - (1 - 0.9) * rnm_val, tolerance = 1e-6)
   expect_equal(k$s_feed, 1 - rnm_val, tolerance = 1e-6)
 })
 
-test_that('compute_atn_kernels: s_feed is the coverage-weighted mean of s_N over events', {
+test_that('compute_atn_kernels: s_feed and p_contact are coverage-weighted means over events', {
   # Two Pyr-ATN campaigns of different ages in circulation at once: s_N is evaluated at
   # each campaign's own net age and weighted by that campaign's surviving coverage,
   # not evaluated at a mean net age.
@@ -444,8 +457,11 @@ test_that('compute_atn_kernels: s_feed is the coverage-weighted mean of s_N over
   # Random proportional replacement: the second campaign displaces 60% of the first.
   U   <- c(0.5 * (1 - 0.6), 0.6)
   age <- c(400, 100)
-  sn  <- 1 - ((rn0_val - rnm_val) * exp(-age / gam) + rnm_val) - dn0_val * exp(-age / gam)
+  rn  <- (rn0_val - rnm_val) * exp(-age / gam) + rnm_val
+  sn  <- 1 - rn - dn0_val * exp(-age / gam)
   expect_equal(k$s_feed, sum(U * sn) / sum(U), tolerance = 1e-12)
+  # p_contact is weighted the same way, with p_C = s_N + omega * r_N per campaign.
+  expect_equal(k$p_contact, sum(U * (sn + 0.9 * rn)) / sum(U), tolerance = 1e-12)
 })
 
 test_that('simulate_bites passes xi = f_A * Q_A and eps to the adult mosquito model', {

@@ -72,11 +72,12 @@ The rate passed to C++ (as the `av_da` argument) is computed in `simulate_bites`
   per-attempt share used in `xi`. Since 2026-10-08 it is **not** passed to C++ itself; the
   `delta_atn` C++ slot now carries ε (block below).
 - **`p_contact`** (`compute_atn_kernels`) is the coverage-weighted mean over distribution events of
-  `p_C = sn + rnm + f·rn_chem` (`sn = 1 − rn − dn`, `rn_chem = max(rn − rnm, 0)`), so
-  `Q0 · delta_atn · p_contact` is SI eq:Q_A including its sum over events. Fed survivors and
-  barrier-repelled mosquitoes contact the net; pyrethroid-killed (`dn`) are excluded. Non-insecticidal
-  ATN: `p_C = 1` at every net age. Fresh Pyr-ATN: `sn + rnm < 1` (Pyr-ATN < ATN ordering), rising to 1
-  as the insecticide wanes. No `set_bednets` call, or no bednet row matching `t0_atn`: falls back to 1.
+  `p_C = sn + ω·rn` (`sn = 1 − rn − dn`, `ω = omega_atn`, default 0.9, see §10), so
+  `Q0 · delta_atn · p_contact` is SI eq:Q_A including its sum over events. Fed survivors contact the
+  net; a repelled mosquito contacts it with probability ω whatever repelled it; pyrethroid-killed
+  (`dn`) are excluded. Non-insecticidal ATN: `p_C = 1 − (1 − ω)·rnm` (0.976) at every net age. Fresh
+  Pyr-ATN: `sn + ω·rn0`, below the ATN value (Pyr-ATN < ATN ordering), tending to it as the
+  insecticide wanes. No `set_bednets` call, or no bednet row matching `t0_atn`: falls back to 1.
 - ATN-off (`delta_atn = 0`) ⇒ `xi = 0`: **baseline untouched**. Only the exposure rate changed:
   `foim` (→ `Sv[0]`), EIR, `mu`/`f`, the aquatic model and total density are unaffected.
 - Debug renders (`atn_debug = TRUE`): `dbg_p_contact_*` and `dbg_xi_*` (were `dbg_contact_factor_*`,
@@ -339,20 +340,24 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
   `compute_atn_kernels` reads `rn`/`rnm`/`dn0`/`gamman` for each ATN event via
   `match(t0_atn, parameters$bednet_timesteps)`. In the Mali pipeline every ATN event matches exactly
   one bednet row (same `timesteps` vector, `mali_projection_run.R:248-258`). Per event
-  `p_C = sn_e + rnm_e + f·rn_chem`, `sn_e = 1 − rn_e − dn_e`, then coverage-weighted across events;
+  `p_C = sn_e + ω·rn_e`, `sn_e = 1 − rn_e − dn_e`, then coverage-weighted across events;
   no denominator (the retry inflation is `1/(1 − Z)` in `xi`). If `match` returns NA (edge case:
   t0_atn not in bednet schedule), `p_C` falls back to 1 for that event. `s_feed` (coverage-weighted
   `sn_e`, for ε) uses the same rows and the same fallbacks. Tests in §12f.
-- **`chem_dose_atn` sensitivity knob (added 2026-06-23).** Generalises `p_C` to
-  `sn + rnm + f·rn_chem`, where `f = chem_dose_atn` (default **0**, `get_parameters`)
-  and `rn_chem = max(rn − rnm, 0)` is the chemical excito-repellency. `f = 0` gives
-  `sn + rnm`; `f = 1` lets
-  every repelled-but-not-killed mosquito touch-and-dose → `1 − dn`. Models the
-  uncertainty that chemically-repelled mosquitoes may still briefly contact the net and pick up the
-  antimalarial. **Only affects `pyr_atn`/`pyr_cfp_atn`** (the only arms with `rn > rnm`; pure `atn`
-  has `rn ≈ rnm` so `rn_chem ≈ 0`, and non-ATN arms have `delta_atn = 0`). R-only change — no C++
-  recompile. Pipeline: `dev/c24med_projection_run.R` exposes it via env var `ATN_CHEM_DOSE`
-  (+ `SWEEP_ARMS` to subset arms); `OUT_FILE` gains a `_chem{tag}` suffix when `f > 0`.
+- **`omega_atn` = SI ω, P(net contact | repelled) (added 2026-10-09; replaced `chem_dose_atn`).**
+  Default **0.9** in `get_parameters`, plausible range 0.8 to 1.0 (video tracking: Parker 2015,
+  Gleave 2023, contact shares near-flat across untreated and treated nets). Applies to every
+  repelled mosquito, barrier or insecticide, all net types and ages, so it moves **every** ATN arm,
+  including pure `atn` (`p_C` 1 → 0.976). Fresh Pyr-ATN `p_C` more than doubles (Churcher 2024
+  pyr-only at resistance 0.82: 0.303 → 0.717), since the old default said insecticide-repelled
+  mosquitoes never contact the net. R-only. Pipeline: env var `ATN_OMEGA`; `OUT_FILE` gains
+  `_omega{tag}` only when ω ≠ 0.9.
+  **History:** `chem_dose_atn` (`f`, default 0, added 2026-06-23) gave `p_C = sn + rnm + f·(rn − rnm)`:
+  every barrier-repelled mosquito contacted the net, only a fraction `f` of the insecticide-repelled
+  did, so contact among repelled mosquitoes rose to 1 as the insecticide waned. Removed outright (no
+  switch). The pipeline now **refuses** `ATN_CHEM_DOSE` if set, so the June driver scripts
+  (`run_c24med_overnight.sh`, `run_c24med_rerun_DE.sh`), which set it, error instead of silently
+  running the new model; they are kept unedited as the record of the June runs.
 - **`atn_displace_t0` / `atn_displace_Q0` — non-drug displacement events (added 2026-06-23).**
   Supports mixed-delivery arms where a **non-drug net (e.g. Pyr-CFP mass campaign)** overwrites
   ATN holders in the IBM, causing `Q_atn_t` to collapse at each campaign. These parameters list
@@ -468,19 +473,23 @@ into `Sv[1]` (exposed rows use `Lambda_i`, not baseline `foim`).
 
   | Env var | Effect | Default |
   |---|---|---|
-  | `ANTIMAL_HL` | Antimalarial half-life (years) → `hl{tag}` in `OUT_FILE` | `2.64` |
-  | `ATN_CHEM_DOSE` | `chem_dose_atn` knob → `_chem{tag}` suffix (see §10) | `0` |
+  | `ANTIMAL_HL_YEARS` | Antimalarial half-life (years) → `hl{tag}` in `OUT_FILE` | `2.64` |
+  | `ATN_OMEGA` | `omega_atn` (prob. a repelled mosquito contacts the net) → `_omega{tag}` suffix when ≠ 0.9 (see §10). `ATN_CHEM_DOSE` (removed 2026-10-09) now errors if set | `0.9` |
   | `SWEEP_ARMS` | Comma-separated arm subset (see §10) | all arms |
   | `SWEEP_CORES` | Parallel workers; pipeline scripts use `12` | `18` |
   | `OUT_SUFFIX` | Extra tag appended before `.rds` — keeps retention/add-on runs distinct | `""` |
   | `NET_RETENTION_DAYS` | Override site `mean_retention` (days); empty = site value (≈2014 d MLI) | site value |
 
-  `OUT_FILE` pattern: `{iso}_c24med_projection_results_hl{hl_tag}{chem_suffix}{out_extra_suffix}.rds`.
+  `OUT_FILE` pattern: `{iso}_c24med_projection_results_hl{hl_tag}{omega_suffix}{out_extra_suffix}.rds`
+  (was `{chem_suffix}` before 2026-10-09). **Trap for the re-run:** a default run (ω = 0.9, no
+  `OUT_SUFFIX`) gets the SAME filename as the June default outputs and overwrites them; set
+  `OUT_SUFFIX` to keep the June results.
   Output metadata includes `retention_time` for traceability.
-  Overnight driver: `dev/run_c24med_overnight.sh` (Jobs A–F sequential).
+  Overnight driver: `dev/run_c24med_overnight.sh` (Jobs A–F sequential; June record, now errors on `ATN_CHEM_DOSE`).
   Targeted re-run: `dev/run_c24med_rerun_DE.sh` (Job D ATN-only + Job E; respects `SWEEP_CORES`).
 - **Selectable multi-file plotter — `dev/c24med_projection_plots_select.R` (added 2026-06-24).**
   Per-series registry keyed on `(key, arm, f, hl, ret)`; non-ATN arms always pinned to the BASELINE
-  job (Job C). Three selectable dimensions: `f` (`chem_dose_atn`), `hl`, `ret` (retention).
+  job (Job C). Three selectable dimensions: `f` (`chem_dose_atn`, removed 2026-10-09; the `f`
+  dimension is now stale, and the plotter is the user's to update), `hl`, `ret` (retention).
   Human-readable filename suffix (e.g. `kABCDEFGH_hl2p64_f0_ret1396`) + manifest CSV. RDS files
   cached per path; missing files warned + dropped (not error).

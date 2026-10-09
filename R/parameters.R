@@ -499,8 +499,9 @@ get_parameters <- function(overrides = list(), parasite = "falciparum") {
       dn0_atn    = 0,    # legacy parameter which was intended to account for insecticide-induced
                          # mortality from AITNs - set to zero since this is already accounted for
                          # through mu and >0 would double count
-      chem_dose_atn = 0, # frac. of chemically-repelled (rn-rnm) mosquitoes that still touch the
-                         # net and receive a dose (0 = current model; 1 = all but killed dose)
+      omega_atn  = 0.9,  # prob. a repelled mosquito contacts the net (SI omega), any cause of
+                         # repellency, all net types and ages: p_C = sn + omega_atn * rn.
+                         # Plausible range 0.8 to 1.0 (video tracking, Parker 2015, Gleave 2023)
       # Hill kernel — pre-infection blocking (Lambda_i)
       s_half_pre = 1,
       nH_pre     = 1,

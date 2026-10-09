@@ -361,13 +361,15 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
   dn_atn    <- parameters$dn0_atn * P_bar
 
   # --- p_contact: mean probability a mosquito survives and contacts the net, per feeding
-  # attempt on a human under an ATN (SI p_C). Fed survivors (sn) and barrier-repelled
-  # mosquitoes (rnm) contact the net; chemical excito-repellency (rn_chem = rn - rnm)
-  # normally prevents contact, and chem_dose_atn (= f, default 0) lets a fraction of that
-  # group still touch-and-dose:
-  #   p_C = sn + rnm + f*rn_chem,  sn = 1 - rn - dn.
+  # attempt on a human under an ATN (SI p_C). Fed survivors (sn) all contact the net; a
+  # repelled mosquito contacts it with probability omega_atn (SI omega, default 0.9),
+  # whether repelled by the physical barrier or by insecticide, for all net types and ages:
+  #   p_C = sn + omega * rn,  sn = 1 - rn - dn.
   # Pyrethroid-killed mosquitoes (dn) are excluded. Non-insecticidal ATN (rn0 = rnm,
-  # dn0 = 0): p_C = 1 at every net age, for any f.
+  # dn0 = 0): p_C = 1 - (1 - omega) * rnm at every net age. This replaces
+  # sn + rnm + f * (rn - rnm) with f = chem_dose_atn (removed 2026-10-09), under which every
+  # barrier-repelled mosquito contacted the net and contact among repelled mosquitoes rose
+  # to 1 as the insecticide waned.
   # p_C depends on net age, so it is averaged over distribution events with coverage
   # weights: p_contact = sum_k U^k p_C(t - t0_k) / U, so that Q0 * delta_atn * p_contact
   # is SI eq:Q_A. The retry inflation 1/(1 - Z) is NOT applied here; it enters through
@@ -379,7 +381,9 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
   # for the dosed-infection share epsilon.
   # Source rn/rnm/dn0/gamman by matching each t0_atn to its bednet schedule row.
   # Both fall back to 1 when no bednet schedule or no row match.
-  f_chem <- if (is.null(parameters$chem_dose_atn)) 0 else parameters$chem_dose_atn
+  # NULL fallback (a parameter list built before omega_atn existed) uses the
+  # get_parameters() default.
+  omega <- if (is.null(parameters$omega_atn)) 0.9 else parameters$omega_atn
   if (is.null(parameters$bednet_timesteps)) {
     pc_each <- rep(1, length(Q_each))
     sn_each <- rep(1, length(Q_each))
@@ -396,9 +400,8 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
     rn_e    <- (rn0_e - rnm_e) * decay_e + rnm_e           # rn(dt): prob_repelled_bednets
     dn_e    <- dn0_e * decay_e                              # dn(dt): prob_survives_bednets
     sn_e    <- 1 - rn_e - dn_e                              # feed-and-survive prob
-    rn_chem <- pmax(rn_e - rnm_e, 0)                        # chemical excito-repellency (>= 0)
     pc_each <- ifelse(!is.na(bed_idx),
-                      pmax(sn_e + rnm_e + f_chem * rn_chem, 0),  # p_C(t - t0_k)
+                      pmax(sn_e + omega * rn_e, 0),         # p_C(t - t0_k)
                       1)
     sn_each <- ifelse(!is.na(bed_idx), pmax(sn_e, 0), 1)    # s_N(t - t0_k)
   }

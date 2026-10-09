@@ -44,18 +44,24 @@ FORK_PATH   <- normalizePath(".")
 hl_years       <- as.numeric(Sys.getenv("ANTIMAL_HL_YEARS", "2.64"))
 hl_tag         <- gsub("\\.", "p", format(hl_years, trim = TRUE))  # 2.64->"2p64", 5->"5", 1->"1"
 
-# ATN_CHEM_DOSE: chem_dose_atn (= f), fraction of chemically-repelled (rn-rnm) mosquitoes that
-# still touch the net and receive a dose. Default 0 = current model. Sensitivity: 1 (or 0.5, etc.).
-# Only affects pyr_atn / pyr_cfp_atn (the only arms with rn > rnm). When > 0, OUT_FILE gets a
-# _chem{tag} suffix so default runs keep their existing names.
-chem_dose      <- as.numeric(Sys.getenv("ATN_CHEM_DOSE", "0"))
-chem_tag       <- gsub("\\.", "p", format(chem_dose, trim = TRUE))  # 1->"1", 0.5->"0p5"
-chem_suffix    <- if (chem_dose > 0) sprintf("_chem%s", chem_tag) else ""
+# ATN_OMEGA: omega_atn, the probability that a repelled mosquito contacts the net (SI omega;
+# p_C = s_N + omega * r_N), the same for all net types and ages. Default 0.9; plausible range
+# 0.8 to 1.0. Affects every ATN arm. When not 0.9, OUT_FILE gets an _omega{tag} suffix.
+# Replaces ATN_CHEM_DOSE (chem_dose_atn, removed 2026-10-09). That variable is refused if set,
+# so an old driver script (e.g. run_c24med_overnight.sh) cannot silently run under the new
+# contact model with its old meaning.
+if (nzchar(Sys.getenv("ATN_CHEM_DOSE", ""))) {
+  stop("ATN_CHEM_DOSE was removed on 2026-10-09 (chem_dose_atn replaced by omega_atn); ",
+       "set ATN_OMEGA instead")
+}
+omega_atn_use  <- as.numeric(Sys.getenv("ATN_OMEGA", "0.9"))
+omega_tag      <- gsub("\\.", "p", format(omega_atn_use, trim = TRUE))  # 0.8->"0p8", 1->"1"
+omega_suffix   <- if (omega_atn_use != 0.9) sprintf("_omega%s", omega_tag) else ""
 # OUT_SUFFIX: extra tag appended to the filename (before .rds) so non-default runs
 # (e.g. retention sweeps, single-arm add-on runs) never overwrite existing results.
 out_extra_suffix <- Sys.getenv("OUT_SUFFIX", "")
 OUT_FILE       <- sprintf("dev/outputs/%s_c24med_projection_results_hl%s%s%s.rds",
-                          tolower(COUNTRY_ISO), hl_tag, chem_suffix, out_extra_suffix)
+                          tolower(COUNTRY_ISO), hl_tag, omega_suffix, out_extra_suffix)
 
 # SWEEP_CORES: number of parallel workers. Override via env var for concurrent runs.
 sweep_cores_env <- Sys.getenv("SWEEP_CORES", "")
@@ -69,8 +75,8 @@ human_pop      <- 100000L
 n_future_years <- 6L
 arms           <- c("none", "pyr", "pyr_pbo", "pyr_cfp", "atn", "pyr_atn", "pyr_cfp_atn",
                     "pyr_cfp_mc_atn_cd")
-# SWEEP_ARMS: comma-separated subset to run (default = all 8). Used for the chem-dose sensitivity
-# sweep, which only needs the affected arms (pyr_atn,pyr_cfp_atn).
+# SWEEP_ARMS: comma-separated subset to run (default = all 8). Used for sensitivity sweeps
+# that only need the affected arms (e.g. the ATN arms for ATN_OMEGA).
 sweep_arms_env <- Sys.getenv("SWEEP_ARMS", "")
 if (nzchar(sweep_arms_env)) {
   arms <- trimws(strsplit(sweep_arms_env, ",")[[1]])
@@ -96,7 +102,7 @@ site_obj     <- readRDS(SITE_FILE)
 country_name <- unique(site_obj$country)[1]
 message(sprintf("Country: %s (%s)", country_name, COUNTRY_ISO))
 message(sprintf("ANTIMAL HL: %.2f yr (tag: hl%s) | cores: %d", hl_years, hl_tag, N_CORES))
-message(sprintf("chem_dose_atn (f): %g | arms: %s", chem_dose, paste(arms, collapse = ",")))
+message(sprintf("omega_atn: %g | arms: %s", omega_atn_use, paste(arms, collapse = ",")))
 message(sprintf("OUT_FILE: %s", OUT_FILE))
 
 site_retention <- unique(site_obj$interventions$mean_retention)
@@ -308,7 +314,7 @@ build_params <- function(region, arm) {
       p_atn         = 0.9,
       deltaq        = deltaq_use,
       gamma_atn     = gamma_atn,
-      chem_dose_atn = chem_dose,
+      omega_atn     = omega_atn_use,
       Q0_atn        = fsch$coverages,
       t0_atn        = fsch$timesteps,
       n_atn         = length(fsch$timesteps)
@@ -327,7 +333,7 @@ build_params <- function(region, arm) {
       p_atn             = 0.9,
       deltaq            = deltaq_use,
       gamma_atn         = gamma_atn,
-      chem_dose_atn     = chem_dose,
+      omega_atn         = omega_atn_use,
       t0_atn            = cd_t0,
       Q0_atn            = cd_Q0,
       n_atn             = length(cd_t0),
@@ -421,7 +427,7 @@ parallel::clusterExport(cl, c(
   "site_obj", "regions", "start_year", "hist_last", "future_yr0",
   "future_start_day", "future_campaign_days", "n_steps", "n_future_years",
   "cfp_pars", "only_pars", "pbo_pars", "atn_kern", "gamma_atn", "ANTIMAL_HL_DAYS",
-  "chem_dose",
+  "omega_atn_use",
   "cd_cov", "campaign_cov", "cd_interval", "retention_time", "deltaq_use",
   "render_overrides", "form_overrides", "human_pop",
   "future_interventions"
@@ -465,8 +471,8 @@ saveRDS(list(
     ANTIMAL_HL_DAYS = ANTIMAL_HL_DAYS,
     hl_years       = hl_years,
     hl_tag         = hl_tag,
-    chem_dose      = chem_dose,
-    chem_tag       = chem_tag,
+    omega_atn      = omega_atn_use,
+    omega_tag      = omega_tag,
     arms           = arms
   )
 ), OUT_FILE)
