@@ -32,7 +32,7 @@ COUNTRY_ISO <- "MLI"
 # Human-readable session tag — bump this label each new plot session so
 # you can tell plot files apart at a glance.  The content hash (appended
 # automatically) guarantees uniqueness even if you forget.
-PLOT_TAG    <- "jobC"
+PLOT_TAG    <- "jobC_30AUG"
 
 # Baseline file for non-ATN arms (none / pyr / pyr_pbo / pyr_cfp).
 # These arms don't vary with f or HL; they are ALWAYS read from here.
@@ -98,9 +98,11 @@ plot_arms <- data.frame(stringsAsFactors = FALSE,
   ret      = c("ret1396",  "ret1396",  "ret1396",  "ret1396",
                "ret1396",  "ret1396",  "ret1396",  "ret1396"),
   enabled  = c(TRUE,       TRUE,       TRUE,       TRUE,
-               TRUE,       TRUE,       TRUE,       TRUE),
-  colour   = c("#DDDDDD",  "#882255",  "#CC6677",  "#DDCC77",
-               "#117733",  "#44AA99",  "#88CCEE",  "#AA4499"),
+               TRUE,       TRUE,       TRUE,       FALSE),
+  #colour   = c("#DDDDDD",  "#882255",  "#CC6677",  "#DDCC77",
+  #             "#117733",  "#44AA99",  "#88CCEE",  "#AA4499"),
+  colour   = c("#BBBBBB",  "#EE7733",  "#CC3311",  "#EE3377",
+               "#009988",  "#0077BB",  "#33BBEE",  "#AA4499"),
   linetype = c("solid",    "solid",    "solid",    "solid",
                "solid",    "solid",    "solid",    "solid"),
   label    = c("No nets",  "Pyr",      "Pyr-PBO",  "Pyr-CFP",
