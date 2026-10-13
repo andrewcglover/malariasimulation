@@ -241,8 +241,16 @@ Facts about the model that matter when running it (all confirmed in the Mali wor
   Both can fail at low mosquito density without the `nn` floor + `a_tol = 0.1` (§8).
 - **Solver error label:** the "too much work" error names the model (`adult mosquito` / `aquatic
   mosquito larval`) and prints `n_states`; on ATN runs it is most likely the adult solver.
-- **MLI site file DDT IRS `ms_gamma` sign error:** every DDT IRS row (2000–2016) has
-  `ms_gamma = +0.004` (should be negative), so repellency rises to 1 instead of decaying; actellic
-  rows (2017+) are correct. Worst in Ségou. atnet's `build_params()` applies `-abs(ms_gamma)` after
-  `expand_interventions()`. Upstream IRS code is untouched; it is a site-data error. TODO (parked):
-  raise it with the `site` maintainer.
+- **IRS slopes of the wrong sign** (the site package's IRS table): DDT `ms_gamma = +0.004` (MLI site
+  file, 2000–2016) and Vectron `ls_gamma = +0.004`, `ms_gamma = +0.036`. Not typos: the DDT set is
+  close to Sherrard-Smith et al. 2018 (Nat Commun 9:4982, SI Table 3) pyrethroid-IRS fit at full
+  susceptibility. malariasimulation keeps each person's last spray date for life, so a positive slope
+  drives the effect to 1 for good (DDT deterrence years later; Vectron full repellency within a year,
+  and negative probabilities if only `ms_gamma` is fixed). `ks_gamma > 0` is correct (feeding
+  recovers). atnet's 07 (`116f125`) replaces any positive `ls_gamma`/`ms_gamma` with Actellic's
+  −0.009 when the site file is read, records it in `settings.rds`, and stops on a negative `ks_gamma`
+  or an impossible probability within 20 years. Site files are never edited. TODO (parked): raise it
+  with the `site` maintainer.
+- **site package version:** the MLI site file (`malariaverse_no_urban_rural_06_2025`) needs site
+  1.0.10 (`b32be32`, tag `malariaverse_01_2025`); versions from June 2026 refuse it as an older
+  site-file structure.
