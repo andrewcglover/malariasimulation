@@ -15,8 +15,9 @@ A fork of `mrc-ide/malariasimulation` with the **antimalarial-treated net (ATN)*
 on the Imperial DIDE cluster via `hipercow`.
 
 **This repository holds the transmission model only.** Data, Stan fits, the 1000-row draws table and
-the projection pipeline live in the analysis package **atnet** (`andrewcglover/atnet`, local
-`C:\Users\ag4218\Local\GitHub\atnet`; projections in `analysis/07_run_projections.R`), which loads
+the projection pipeline live in the analysis package **atnet** (`andrewcglover/atnet`; on the desktop
+`M:\Andrew\ATN\atnet`, the hipercow root, on the laptop `C:\Users\ag4218\Local\GitHub\atnet`;
+projections in `analysis/07_run_projections.R`), which loads
 this fork from source (`ATN_FORK_PATH`) or, on the cluster, installs it at a fixed tag.
 
 ## 1. Reference — READ THIS FIRST
@@ -58,6 +59,10 @@ Indices and rates:
   full S, E^1..E^R, I set, so the adult state per species is `deltaqp1 × (2 + spor_len)`.
 - `spor_len` (R, default 10) Erlang stages replace upstream's fixed EIP delay in **all** arms;
   baseline stage rate `rho = spor_len / dem` (1/day at `dem` 10).
+- **atnet's projections override both: `deltaq` = `spor_len` = 30**, in every arm (ATN off too, so
+  saved states restore across segments). Equal counts with `atn_window` = `dem` = 10 put the pre- and
+  post-infection blocking midpoints on one grid; 30 EIP stages match the 27 °C assay (atnet `07`
+  explains both).
 - Midpoint convention: class `i` is read at `s_i = (i − 1.5) · atn_window/deltaq` days since exposure
   (1-based), i.e. SI `s_i = (i − ½)/κ`.
 
@@ -232,13 +237,18 @@ the baseline class at the no-ATN Erlang steady state with all exposed classes ze
 ## 11. Running the fork in projections (pipeline itself is in atnet)
 
 Facts about the model that matter when running it (all confirmed in the Mali work):
-- **`site_parameters()` sets clinical incidence rendering** to its own three age groups `[0, 1824]`,
-  `[1825, 5474]`, `[5475, 36499]` days, ignoring `clinical_incidence_rendering_*`; sum the three.
-- **Rendered column names use an exclusive upper bound:** `prevalence_rendering_max_ages = 3650` gives
-  `n_detect_lm_730_3649` and `n_age_730_3649`.
+- **site 1.0.10's `site_parameters()` sets every rendering age band itself** (`set_age_outputs()`,
+  after any overrides, so overrides of rendering ages are inert): age groups and clinical/severe
+  incidence `[0, 1824]`, `[1825, 5474]`, `[5475, 36499]` days (sum the three); prevalence
+  `[365, 36499]` and `[730, 3649]`.
+- **Rendered column names paste the bounds verbatim:** the `_730_3649` in `n_detect_lm_730_3649` /
+  `n_age_730_3649` is site 1.0.10's bound (`c(100, 10) * 365 - 1`); plain `get_parameters()` gives
+  `_730_3650`. So `cali`'s built-in summary (which reads `_730_3650`) does not fit site-built runs;
+  atnet's `07a` supplies its own.
 - **Mali has three species** (gambiae, arabiensis, funestus): per-species vectors everywhere.
-- **State sizes:** 27 per species at `deltaq` = 1 (non-ATN default), 135 at `deltaq` = 10 (ATN arms).
-  Both can fail at low mosquito density without the `nn` floor + `a_tol = 0.1` (§8).
+- **State sizes:** adult states per species = `(deltaq + 1) × (2 + spor_len)`: 27 at the fork's
+  defaults with `deltaq` = 1, 992 at atnet's `deltaq` = `spor_len` = 30. All can fail at low mosquito
+  density without the `nn` floor + `a_tol = 0.1` (§8).
 - **Solver error label:** the "too much work" error names the model (`adult mosquito` / `aquatic
   mosquito larval`) and prints `n_states`; on ATN runs it is most likely the adult solver.
 - **IRS slopes of the wrong sign** (the site package's IRS table): DDT `ms_gamma = +0.004` (MLI site
