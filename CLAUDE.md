@@ -98,8 +98,22 @@ stage). `eps = delta_atn · s_feed / sum(.pi · prob_bitten_survives)`, where `s
 coverage-weighted `s_N` (same rows and fallbacks as `p_contact`) and the denominator is `Σ_h π_h w_h`
 (= `(W − (1 − Q0))/Q0`), so it includes historical ITNs and IRS. ATN off ⇒ `eps = 0`.
 
-**Potency (SI eq:potency, eq:potency_mean; commits `6543691`, `5fdaa29`).** Event k's antimalarial
-potency is `P_k = exp(−gamma_atn · age_k)`; `P_bar` is its coverage-weighted mean (0 when `Q_t = 0`).
+**Potency (SI eq:potency, eq:potency_mean; commits `6543691`, `5fdaa29`, `09b287d`).** Event k's
+antimalarial potency is `P_k = atn_potency(age_k, parameters)`; `P_bar` is its coverage-weighted
+mean (0 when `Q_t = 0`). **Two shapes**, chosen by `atn_decay_form` and both taking the same
+half-life through `gamma_atn`, so the prior on the half-life is unaffected by the choice:
+- `"exp"` (default, and the only form before 2026-10-20): `P(a) = exp(−gamma_atn · a)`.
+- `"smoothcompact"`: `P(a) = exp(−k (a/l)² / (1 − (a/l)²))` for `a < l`, 0 beyond, with
+  `l = atn_decay_zero_days` (default 20 y) and `k = log2·[(l/h)² − 1]` from the half-life `h`.
+  This is the function malariasimulation already uses for net retention
+  (`logistic_net_retention_time`, S.I. of 10.1038/s41467-018-07357-w). It holds near one, crosses
+  the half-life at the same age as the exponential **by construction**, then falls away sharply —
+  the shape a saturating dose-response implies. `k > 0` needs `h < l`, which is checked.
+Each drug effect is **linear in `P_bar`**, so the coverage-weighted mean of the effects equals the
+effect at the mean potency **whatever shape `P` takes with age** — the mixture identity survives
+the new form. Consequence worth knowing: a decay form is summarised for impact purposes by its mean
+potency over the net's life, so two forms with the same mean over the reporting window give nearly
+the same answer (smooth-compact at a 2.5 y half-life ≈ exponential at ~3.5 y).
 One half-life governs all three mechanisms, applied on the **field (TBA) scale**, i.e. after the
 Bompard map:
 1. **Pre-infection blocking** `Lambda_i = Λ · (1 − P_bar · TBA_field(B_max_post · H_pre(s_i)))`
@@ -225,7 +239,14 @@ the baseline class at the no-ATN Erlang steady state with all exposed classes ze
   `match(t0_atn, parameters$bednet_timesteps)`; in atnet every ATN event has its own bednet row.
 - **`omega_atn`** = SI ω, P(net contact | repelled), default 0.9; applies to every repelled mosquito,
   all net types and ages (replaced `chem_dose_atn` 2026-10-09). In atnet ω is drawn per row
-  (Beta(41.8, 4.65)).
+  (**Beta(62.61, 3.61)** from 2026-10-20, median 0.95; was Beta(41.8, 4.65), whose whole 95% range
+  sat below the measured net-contact shares).
+- **`atn_decay_form` / `atn_decay_zero_days`** (defaults `"exp"` and 20 y, i.e. the pre-2026-10-20
+  behaviour): the shape of the potency decay, see §3. A parameter list built before they existed
+  (`atn_decay_form` NULL) takes the exponential path, so old pipelines are unaffected. **Trap:**
+  atnet's 07 passes these keys **only** when `ATN_DECAY_FORM=smoothcompact`, so a fork without them
+  still runs; if you add a run that needs the new form, re-provision the cluster at a tag that has
+  this commit, or the job will silently use the exponential.
 - **`atn_displace_t0` / `atn_displace_Q0`:** non-drug distributions that overwrite ATN holders;
   they reduce `repl_factor` but add nothing to coverage. Default empty. Used only by the mixed arm
   `pyr_cfp_mc_atn_cd`, which is not in the paper.
