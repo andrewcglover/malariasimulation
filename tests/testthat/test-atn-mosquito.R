@@ -640,3 +640,76 @@ test_that('compute_atn_kernels: CD event after displacement is unaffected by tha
   k <- compute_atn_kernels(400L, parameters, parameters$init_foim, 1L)
   expect_equal(k$delta_atn, parameters$p_atn * phi * 0.5, tolerance = 1e-9)
 })
+
+# --- antimalarial decay form (atn_potency) -------------------------------------------
+# Added 2026-10-20 with the smooth-compact option. Both forms take the same half-life
+# through gamma_atn, so a run keeps its prior when only the form changes.
+
+test_that("the default decay form is exponential and unchanged", {
+  p <- get_parameters()
+  expect_equal(p$atn_decay_form, "exp")
+  p$gamma_atn <- log(2) / 900
+  age <- c(0, 450, 900, 1800, 3600)
+  expect_equal(atn_potency(age, p), exp(-p$gamma_atn * age))
+  # A parameter list made before the option existed behaves the same way.
+  p$atn_decay_form <- NULL
+  expect_equal(atn_potency(age, p), exp(-p$gamma_atn * age))
+})
+
+test_that("both forms halve at the half-life, and only there", {
+  for (hl in c(2, 3.16, 5) * 365) {
+    p <- get_parameters()
+    p$gamma_atn <- log(2) / hl
+    p$atn_decay_zero_days <- 20 * 365
+    expect_equal(atn_potency(hl, p), 0.5, tolerance = 1e-8)
+    p$atn_decay_form <- "smoothcompact"
+    expect_equal(atn_potency(hl, p), 0.5, tolerance = 1e-8)
+  }
+})
+
+test_that("smooth-compact starts flatter, then falls below the exponential", {
+  p <- get_parameters()
+  hl <- 3.16 * 365
+  p$gamma_atn <- log(2) / hl
+  p$atn_decay_zero_days <- 20 * 365
+  ex <- atn_potency(c(180, 365, hl, 2 * hl), p)
+  p$atn_decay_form <- "smoothcompact"
+  sc <- atn_potency(c(180, 365, hl, 2 * hl), p)
+  expect_true(all(sc[1:2] > ex[1:2]))      # plateau before the half-life
+  expect_equal(sc[3], ex[3], tolerance = 1e-8)
+  expect_true(sc[4] < ex[4])               # falls away after it
+  expect_true(all(sc >= 0 & sc <= 1))
+  expect_true(all(diff(sc) < 0))           # monotone
+})
+
+test_that("smooth-compact reaches zero at atn_decay_zero_days and stays there", {
+  p <- get_parameters()
+  p$gamma_atn <- log(2) / (3 * 365)
+  p$atn_decay_form <- "smoothcompact"
+  p$atn_decay_zero_days <- 20 * 365
+  expect_equal(atn_potency(20 * 365, p), 0)
+  expect_equal(atn_potency(25 * 365, p), 0)
+  expect_true(atn_potency(20 * 365 - 1, p) < 1e-6)
+})
+
+test_that("with no antimalarial both forms leave potency at one", {
+  p <- get_parameters()             # gamma_atn = 0 by default
+  p$atn_decay_form <- "smoothcompact"
+  expect_equal(atn_potency(c(0, 365, 3650), p), rep(1, 3))
+  p$atn_decay_form <- "exp"
+  expect_equal(atn_potency(c(0, 365, 3650), p), rep(1, 3))
+})
+
+test_that("an impossible smooth-compact configuration errors rather than silently misbehaving", {
+  p <- get_parameters()
+  p$atn_decay_form <- "smoothcompact"
+  p$gamma_atn <- log(2) / (25 * 365)       # half-life beyond the zero point
+  p$atn_decay_zero_days <- 20 * 365
+  expect_error(atn_potency(100, p), "must exceed the antimalarial half-life")
+  p$gamma_atn <- log(2) / (3 * 365)
+  p$atn_decay_zero_days <- NULL
+  expect_error(atn_potency(100, p), "atn_decay_zero_days must be a positive")
+  p$atn_decay_zero_days <- 20 * 365
+  p$atn_decay_form <- "nonsense"
+  expect_error(atn_potency(100, p), "must be 'exp' or 'smoothcompact'")
+})

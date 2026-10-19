@@ -301,6 +301,53 @@ calculate_infectious_compartmental <- function(solver_states, parameters) {
   max(sum(solver_states[iv_idx]), 0)
 }
 
+# The proportion of the antimalarial's effect remaining on a net of each age in days
+# (SI eq:potency). Two shapes, both parameterised by the same half-life, which is
+# gamma_atn = log(2) / half-life whichever is used:
+#
+#   "exp" (the default, and the only form before 2026-10-20)
+#       P(a) = exp(-gamma_atn a). The effect falls fastest at age zero.
+#
+#   "smoothcompact"
+#       P(a) = exp(-k (a/l)^2 / (1 - (a/l)^2)) for a < l, and 0 at a >= l, the function
+#       malariasimulation already uses for net retention (logistic_net_retention_time,
+#       see the S.I. of 10.1038/s41467-018-07357-w). It holds near one, crosses the
+#       half-life at the same age as the exponential by construction, then falls away
+#       sharply. That is the shape a saturating dose-response implies: while enough
+#       antimalarial remains to block, the effect does not decline with concentration.
+#       l is atn_decay_zero_days, the net age at which the effect reaches zero, and
+#       k = log(2) [(l/h)^2 - 1] follows from it and the half-life h, so no second
+#       parameter is drawn. k > 0 requires h < l.
+#
+# No ATN (gamma_atn = 0) gives P = 1 under either form, so the arms without an
+# antimalarial are untouched.
+atn_potency <- function(age, parameters) {
+  gamma_atn <- parameters$gamma_atn
+  form <- parameters$atn_decay_form
+  if (is.null(form) || identical(form, "exp")) {
+    return(exp(-gamma_atn * age))
+  }
+  if (!identical(form, "smoothcompact")) {
+    stop("atn_decay_form must be 'exp' or 'smoothcompact', not '", form, "'", call. = FALSE)
+  }
+  if (gamma_atn <= 0) {
+    return(rep(1, length(age)))
+  }
+  l <- parameters$atn_decay_zero_days
+  if (is.null(l) || !is.finite(l) || l <= 0) {
+    stop("atn_decay_zero_days must be a positive number of days when ",
+         "atn_decay_form is 'smoothcompact'", call. = FALSE)
+  }
+  half_life <- log(2) / gamma_atn
+  if (half_life >= l) {
+    stop("atn_decay_zero_days (", l, ") must exceed the antimalarial half-life (",
+         signif(half_life, 4), " days)", call. = FALSE)
+  }
+  k <- log(2) * ((l / half_life)^2 - 1)
+  x <- pmin(age / l, 1)
+  ifelse(age >= l, 0, exp(-k * x^2 / (1 - x^2)))
+}
+
 # Compute per-timestep ATN kernel scalars and vectors (v3 lines 773-864 + 430-467).
 # Returns: Q_t, delta_atn, p_contact, s_feed, dn_atn, Lambda0_t, Lambda_i (len deltaqp1),
 #          rho_i (len deltaqp1), B_post (len spor_len).
@@ -337,21 +384,22 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
   Q_t <- sum(Q_each)
 
   # --- mean antimalarial potency over the net-age mixture ---
-  # P_each = exp(-gamma_atn * age_k) is the proportion of antimalarial remaining on nets
-  # from distribution event k (SI eq:potency); P_bar is its use-weighted mean over the
-  # events still in circulation (SI eq:potency_mean). Campaigns that have not yet fired
-  # carry Q_each = 0 and so contribute nothing.
+  # P_each is the proportion of the antimalarial's EFFECT remaining on nets from
+  # distribution event k (SI eq:potency); P_bar is its use-weighted mean over the events
+  # still in circulation (SI eq:potency_mean). Campaigns that have not yet fired carry
+  # Q_each = 0 and so contribute nothing.
   #
   # Each drug effect is linear in P_each, so the use-weighted mean of the effects (which
   # this function previously computed, via Lambda0_each / rho0_each / dn_each) and the
   # effect evaluated at the use-weighted mean potency are identical. The three quantities
   # below are therefore the same numbers as before, now expressed through one named
   # potency. Note this is NOT the same as evaluating potency at the mean net age, which
-  # would be biased low; the mixture is still averaged campaign by campaign.
+  # would be biased low; the mixture is still averaged campaign by campaign. That linearity
+  # holds whatever shape P_each takes with age, so it survives the choice below.
   Lambda   <- foim
   rho00    <- parameters$rho_frac * rho
   age      <- pmax(timestep - t0, 0)
-  P_each   <- ifelse(timestep < t0, 0, exp(-parameters$gamma_atn * age))
+  P_each   <- ifelse(timestep < t0, 0, atn_potency(age, parameters))
   P_bar    <- if (Q_t > 0) sum(Q_each * P_each) / Q_t else 0
 
   # --- drug effects at the mean potency (zero-coverage cases fall out at P_bar = 0) ---

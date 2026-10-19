@@ -493,6 +493,13 @@ get_parameters <- function(overrides = list(), parasite = "falciparum") {
       lambda_atn = NULL, # ATN coverage retention decay rate; NULL = auto-derive as
                          # 1/bednet_retention once set_bednets is called
       gamma_atn  = 0,    # drug-effect potency decay rate
+      # How the drug effect wanes with the age of the net (see atn_potency). "exp" is
+      # exp(-gamma_atn * age), the only form before 2026-10-20 and still the default;
+      # "smoothcompact" holds near one, then falls away to zero at atn_decay_zero_days,
+      # which is the shape a saturating dose-response implies. Both take the same
+      # half-life through gamma_atn, so changing the form alone keeps the prior intact.
+      atn_decay_form      = "exp",
+      atn_decay_zero_days = 20 * 365,  # only used by "smoothcompact"
       p_atn      = 0,    # prob. antimalarial present on bite attempt (0 = ATN off)
       # Drug-effect baselines
       rho_frac   = 1,    # rho00   = rho_frac * rho (scale factor)
