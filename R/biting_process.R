@@ -379,8 +379,28 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
     later_disp <- which(disp_t0 > t0[i] & disp_t0 <= timestep)
     prod(1 - Q0[later_drug]) * prod(1 - disp_Q0[later_disp])
   }, numeric(1))
-  Q_each <- ifelse(timestep < t0, 0,
-              Q0 * exp(-lambda_atn * (timestep - t0)) * repl_factor)
+  # Coverage is lost at the rate the IBM loses nets, in whichever form
+  # set_bednets() was given, so that the mean-field ATN coverage and the
+  # individual net-loss times describe one process. distribute_nets() picks
+  # its sampler on the same test (bednet_retention set or not), so the two
+  # cannot disagree. Smooth-compact retention is the curve of
+  # logistic_net_retention_time(): S(a) = exp(-k x^2 / (1 - x^2)), x = a / l,
+  # with l rebuilt from the event's own (half-life, k) exactly as that
+  # function rebuilds it. Each ATN event takes the last bednet row at or
+  # before it, so an event without a row of its own still has parameters.
+  age <- timestep - t0
+  retained <- if (is.null(parameters$bednet_retention) &&
+                  !is.null(parameters$bednet_logistic_half_life)) {
+    i  <- pmax(findInterval(t0, parameters$bednet_timesteps), 1L)
+    hl <- parameters$bednet_logistic_half_life[i]
+    kk <- parameters$bednet_logistic_k[i]
+    l  <- hl / sqrt(1 - kk / (kk - log(0.5)))
+    x  <- pmin(age / l, 1)
+    ifelse(age >= l, 0, exp(-kk * x^2 / (1 - x^2)))
+  } else {
+    exp(-lambda_atn * age)
+  }
+  Q_each <- ifelse(timestep < t0, 0, Q0 * retained * repl_factor)
   Q_t <- sum(Q_each)
 
   # --- mean antimalarial potency over the net-age mixture ---

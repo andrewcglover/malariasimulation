@@ -67,10 +67,24 @@ Indices and rates:
   (1-based), i.e. SI `s_i = (i − ½)/κ`.
 
 **Coverage is ATN-only by design.** `Q_atn_t` (`Q_t`) is built solely from the ATN distribution
-events (`Q0_atn`/`t0_atn`, `n_atn` of them) in `compute_atn_kernels`, with exponential loss at
-`lambda_atn` and random proportional replacement by later events (SI eq:cov_replace). It excludes
-historical pyrethroid ITNs still in circulation — those suppress biting (via `net_time` in `a`) but
-deliver no drug. Do **not** couple ATN coverage to the `W`/`Z` net-using population.
+events (`Q0_atn`/`t0_atn`, `n_atn` of them) in `compute_atn_kernels`, with random proportional
+replacement by later events (SI eq:cov_replace). It excludes historical pyrethroid ITNs still in
+circulation — those suppress biting (via `net_time` in `a`) but deliver no drug. Do **not** couple
+ATN coverage to the `W`/`Z` net-using population.
+
+**Coverage is lost in whichever retention form `set_bednets` was given** (2026-10-24). `Q_t` is the
+mean-field twin of the IBM's own net loss, so the two must be the same distribution:
+- `bednet_retention` set ⇒ `exp(-lambda_atn · a)`, as before and unchanged bit for bit.
+- `bednet_retention` NULL with `bednet_logistic_half_life`/`_k` set ⇒ the smooth-compact curve
+  `exp(-k x²/(1 − x²))`, `x = a/l`, `l = h/√(1 − k/(k − log0.5))`, read per event from the last
+  `bednet_timesteps` row at or before `t0_atn`. `lambda_atn` is then unused.
+`distribute_nets()` (`R/vector_control.R`) picks its sampler on the same `bednet_retention` test, so
+the IBM and the kernel cannot disagree. **Trap:** `set_bednets`'s mutual-exclusion checks look at
+its own arguments, not the parameter list, so a second call passing `logistic_*` leaves an earlier
+`bednet_retention` in place and BOTH silently stay exponential — `site_parameters()` always makes
+that earlier call. A pipeline switching form must clear `bednet_retention` itself (atnet does, with
+an assertion). The retention curve is the same function as the smooth-compact potency (§3) and as
+`netz::net_loss_map`; all three use `k = log2·((l/h)² − 1)`.
 
 **Exposure rate ξ (SI eq:xi; implemented 2026-10-08, commit `0b0776d`).** Passed to C++ as the
 `av_da` argument; computed in `simulate_bites` (`R/biting_process.R`) as
@@ -234,7 +248,11 @@ the baseline class at the no-ATN Erlang steady state with all exposed classes ze
   no `set_bednets` call ⇒ 0. **Trap:** it is derived on the FIRST `set_bednets` call only, and
   `site::site_parameters()` already calls it with the site file's retention. A pipeline that calls
   `set_bednets` again with another retention must set `lambda_atn` itself (atnet does, since
-  `d26d824`).
+  `d26d824`). Since 2026-10-24 it is used only on the exponential path; under logistic retention
+  `Q_t` follows that curve instead and `lambda_atn` is ignored (§3). The auto-derive's
+  `1/bednet_logistic_half_life` fallback, and its warning, are therefore dead weight on a pipeline
+  that clears `bednet_retention` — and wrong under a mean-matched convention, where the exponential
+  analogue would be `1/mean`, not `1/half_life`.
 - **`p_contact` / `s_feed` sourcing:** each ATN event's `rn`/`rnm`/`dn0`/`gamman` come from
   `match(t0_atn, parameters$bednet_timesteps)`; in atnet every ATN event has its own bednet row.
 - **`omega_atn`** = SI ω, P(net contact | repelled), default 0.9; applies to every repelled mosquito,

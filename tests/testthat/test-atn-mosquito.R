@@ -328,6 +328,77 @@ test_that('set_bednets with logistic retention warns and sets lambda_atn = 1/hal
   expect_equal(parameters$lambda_atn, 1 / 1500, tolerance = 1e-12)
 })
 
+# ATN coverage is lost in whichever retention form set_bednets was given, so that
+# Q_atn_t and the IBM's own net-loss times describe one process. Under the
+# smooth-compact form the curve is the one logistic_net_retention_time() samples
+# from, S(a) = exp(-k x^2 / (1 - x^2)) with x = a / l, and lambda_atn is ignored.
+sc_bednet_params <- function(half_life, k, t0 = 100L) {
+  parameters <- get_parameters(list(p_atn = 0.9, Q0_atn = 0.8, t0_atn = t0))
+  n_sp <- length(parameters$species)
+  suppressWarnings(parameters <- set_bednets(
+    parameters, timesteps = t0, coverages = 0.5,
+    logistic_half_life = half_life, logistic_k = k,
+    dn0 = matrix(0,    nrow = 1, ncol = n_sp),
+    rn  = matrix(0.24, nrow = 1, ncol = n_sp),
+    rnm = matrix(0.24 - 1e-9, nrow = 1, ncol = n_sp),
+    gamman = 365
+  ))
+  # site_parameters() would have set bednet_retention on an earlier call; here
+  # there is none, but drop it explicitly so the test asserts the dispatch.
+  parameters$bednet_retention <- NULL
+  set_equilibrium(parameters, 50.)
+}
+
+test_that('ATN coverage follows smooth-compact retention when set_bednets does', {
+  half_life <- 620; k <- 95.47
+  parameters <- sc_bednet_params(half_life, k)
+  foim <- parameters$init_foim
+  l <- half_life / sqrt(1 - k / (k - log(0.5)))
+
+  for (age in c(0, 1, 200, 620, 1500, 2500)) {
+    kern <- compute_atn_kernels(100L + age, parameters, foim, 1L)
+    x <- age / l
+    expect_equal(kern$delta_atn,
+                 0.9 * parameters$phi_bednets[[1]] * 0.8 *
+                   exp(-k * x^2 / (1 - x^2)),
+                 tolerance = 1e-10)
+  }
+  # Half the coverage is left at the half-life, by construction.
+  kern <- compute_atn_kernels(100L + half_life, parameters, foim, 1L)
+  expect_equal(kern$delta_atn,
+               0.9 * parameters$phi_bednets[[1]] * 0.8 * 0.5,
+               tolerance = 1e-9)
+})
+
+test_that('smooth-compact ATN coverage is gone beyond the zero day', {
+  half_life <- 620; k <- 95.47
+  parameters <- sc_bednet_params(half_life, k)
+  l <- half_life / sqrt(1 - k / (k - log(0.5)))
+  kern <- compute_atn_kernels(100L + ceiling(l) + 1L, parameters,
+                              parameters$init_foim, 1L)
+  expect_equal(kern$delta_atn, 0)
+})
+
+test_that('lambda_atn is ignored on the smooth-compact path', {
+  half_life <- 620; k <- 95.47
+  a <- sc_bednet_params(half_life, k)
+  b <- a; b$lambda_atn <- 1 / 50   # an absurd exponential rate, must not bite
+  expect_equal(compute_atn_kernels(400L, a, a$init_foim, 1L)$delta_atn,
+               compute_atn_kernels(400L, b, b$init_foim, 1L)$delta_atn)
+})
+
+test_that('exponential ATN coverage is unchanged by the new branch', {
+  parameters <- get_parameters(list(p_atn = 0.9, Q0_atn = 0.8, t0_atn = 1L,
+                                    lambda_atn = 1 / 657))
+  parameters <- set_equilibrium(parameters, 50.)
+  for (age in c(0, 100, 657, 2000)) {
+    kern <- compute_atn_kernels(1L + age, parameters, parameters$init_foim, 1L)
+    expect_equal(kern$delta_atn,
+                 0.9 * parameters$phi_bednets[[1]] * 0.8 * exp(-age / 657),
+                 tolerance = 1e-10)
+  }
+})
+
 # ── 12f: exposure rate xi, dosed-infection share eps, and the kernels p_contact, s_feed ──
 #
 # p_contact is the coverage-weighted mean of p_C = sn + omega * rn, the probability a
