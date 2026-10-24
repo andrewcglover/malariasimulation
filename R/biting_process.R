@@ -392,8 +392,13 @@ compute_atn_kernels <- function(timestep, parameters, foim, species) {
   retained <- if (is.null(parameters$bednet_retention) &&
                   !is.null(parameters$bednet_logistic_half_life)) {
     i  <- pmax(findInterval(t0, parameters$bednet_timesteps), 1L)
-    hl <- parameters$bednet_logistic_half_life[i]
-    kk <- parameters$bednet_logistic_k[i]
+    nt <- length(parameters$bednet_timesteps)
+    # One value for every distribution, as bednet_retention is, or one per
+    # distribution; rep_len takes both. distribute_nets() only honours the
+    # first, so a differing vector would already have the IBM drawing
+    # retention times that do not match their own distribution.
+    hl <- rep_len(parameters$bednet_logistic_half_life, nt)[i]
+    kk <- rep_len(parameters$bednet_logistic_k,         nt)[i]
     l  <- hl / sqrt(1 - kk / (kk - log(0.5)))
     x  <- pmin(age / l, 1)
     ifelse(age >= l, 0, exp(-kk * x^2 / (1 - x^2)))

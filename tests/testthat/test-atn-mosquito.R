@@ -387,6 +387,31 @@ test_that('lambda_atn is ignored on the smooth-compact path', {
                compute_atn_kernels(400L, b, b$init_foim, 1L)$delta_atn)
 })
 
+test_that('smooth-compact coverage reads a scalar half-life and k', {
+  # set_bednets takes one value for all distributions, as it does for
+  # bednet_retention; the kernel must not index past the end of it.
+  half_life <- 620; k <- 95.47
+  p <- get_parameters(list(p_atn = 0.9, Q0_atn = c(0.8, 0.8),
+                           t0_atn = c(100L, 500L), n_atn = 2L))
+  n_sp <- length(p$species)
+  suppressWarnings(p <- set_bednets(
+    p, timesteps = c(100L, 500L), coverages = c(0.5, 0.5),
+    logistic_half_life = half_life, logistic_k = k,          # scalars
+    dn0 = matrix(0, 2, n_sp), rn = matrix(0.24, 2, n_sp),
+    rnm = matrix(0.24 - 1e-9, 2, n_sp), gamman = c(365, 365)
+  ))
+  p$bednet_retention <- NULL
+  p <- set_equilibrium(p, 50.)
+  l <- half_life / sqrt(1 - k / (k - log(0.5)))
+  # At t = 600 the first event is 500 days old and the second 100; the second
+  # replaces a share of the first (repl_factor), both on the same curve.
+  surv <- function(a) { x <- a / l; exp(-k * x^2 / (1 - x^2)) }
+  expect_equal(compute_atn_kernels(600L, p, p$init_foim, 1L)$delta_atn,
+               0.9 * p$phi_bednets[[1]] *
+                 (0.8 * surv(500) * (1 - 0.8) + 0.8 * surv(100)),
+               tolerance = 1e-10)
+})
+
 test_that('exponential ATN coverage is unchanged by the new branch', {
   parameters <- get_parameters(list(p_atn = 0.9, Q0_atn = 0.8, t0_atn = 1L,
                                     lambda_atn = 1 / 657))
